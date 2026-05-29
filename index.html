@@ -329,18 +329,18 @@
       background: rgba(30,24,0,0.7);
     }
 
-    /* ── DROP ZONE (backpack ouvert) ── */
+    /* ── DROP ZONE — dans le panneau backpack ── */
     #drop-zone {
-      position: fixed; bottom: 20px; left: 50%;
-      transform: translateX(-50%);
-      width: 120px; height: 40px;
-      border: 2px dashed rgba(220,60,60,0.5);
-      border-radius: 8px;
-      color: rgba(220,60,60,0.6);
+      width: 100%;
+      height: 36px;
+      border: 2px dashed rgba(220,60,60,0.45);
+      border-radius: 6px;
+      color: rgba(220,60,60,0.55);
       font-size: 10px; letter-spacing: 2px; font-family: monospace;
       display: none; align-items: center; justify-content: center;
-      z-index: 21; pointer-events: all;
-      transition: border-color 0.15s, color 0.15s;
+      pointer-events: all;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      cursor: pointer;
     }
     #drop-zone.drag-over {
       border-color: rgba(220,60,60,1);
@@ -402,6 +402,7 @@
       <div class="bp-slot" data-bp="4"></div>
       <div class="bp-slot" data-bp="5"></div>
     </div>
+    <div id="drop-zone">&#x1F5D1; JETER L'OBJET</div>
   </div>
 </div>
 
@@ -413,8 +414,6 @@
 <div id="pickup-prompt">[ E ] Ramasser</div>
 <!-- Bouton ramasser mobile -->
 <div id="btn-pickup">&#x1F4E6;<br>Ramasser</div>
-<!-- Drop zone (visible quand backpack ouvert) -->
-<div id="drop-zone">&#x1F5D1; JETER</div>
 
 <div id="mobile-ui">
   <div id="joystick-zone">
@@ -1754,6 +1753,7 @@ function setDragItem(src, item) {
 
 function setupDragSlot(el, type, idx) {
   el.setAttribute('draggable', 'true');
+
   el.addEventListener('dragstart', e => {
     const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
     if (!item) { e.preventDefault(); return; }
@@ -1761,45 +1761,55 @@ function setupDragSlot(el, type, idx) {
     el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', '');
-    // Montrer drop zone
     dropZone.style.display = 'flex';
   });
+
   el.addEventListener('dragend', () => {
     el.classList.remove('dragging');
     dropZone.classList.remove('drag-over');
-    dropZone.style.display = gameState === 'backpack' ? 'flex' : 'none';
-  });
-  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
-  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-  el.addEventListener('drop', e => {
-    e.preventDefault(); e.stopPropagation();
-    el.classList.remove('drag-over');
-    if (!dragSrc || (dragSrc.type === type && dragSrc.idx === idx)) { dragSrc = null; return; }
-    const dst = { type, idx };
-    const a = getDragItem(dragSrc), b = getDragItem(dst);
-    setDragItem(dragSrc, b); setDragItem(dst, a);
-    dragSrc = null; renderAllSlots(); updateUseButton();
   });
 
-  // Empêcher le clic sur hotbar de fermer le backpack
+  el.addEventListener('dragover', e => {
+    e.preventDefault();
+    el.classList.add('drag-over');
+  });
+
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    if (!dragSrc || (dragSrc.type === type && dragSrc.idx === idx)) {
+      dragSrc = null; return;
+    }
+    const dst = { type, idx };
+    const a = getDragItem(dragSrc), b = getDragItem(dst);
+    setDragItem(dragSrc, b);
+    setDragItem(dst, a);
+    dragSrc = null;
+    renderAllSlots();
+    updateUseButton();
+  });
+
+  // Click sur hotbar en jeu = sélectionner
   if (type === 'hotbar') {
-    el.addEventListener('click', e => {
-      e.stopPropagation();
+    el.addEventListener('click', () => {
       selectHotbar(idx);
       updateUseButton();
     });
   }
 
-  // Mobile touch swap
+  // Mobile : tap pour sélectionner source, re-tap pour échanger
   el.addEventListener('touchstart', e => {
-    e.stopPropagation();
     const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
     if (dragSrc) {
       const dst = { type, idx };
       if (!(dragSrc.type === type && dragSrc.idx === idx)) {
         const a = getDragItem(dragSrc), b = getDragItem(dst);
-        setDragItem(dragSrc, b); setDragItem(dst, a);
-        renderAllSlots(); updateUseButton();
+        setDragItem(dragSrc, b);
+        setDragItem(dst, a);
+        renderAllSlots();
+        updateUseButton();
       }
       document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
       dragSrc = null;
@@ -1807,7 +1817,7 @@ function setupDragSlot(el, type, idx) {
     } else if (item) {
       dragSrc = { type, idx };
       el.classList.add('dragging');
-      dropZone.style.display = 'flex'; // montrer zone de drop mobile
+      dropZone.style.display = 'flex';
     }
   }, { passive: true });
 }
