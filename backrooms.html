@@ -1,0 +1,2103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Backrooms</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: monospace; }
+    canvas { display: block; }
+
+    #overlay {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(0,0,0,.95);
+      color: #b8a030;
+      cursor: pointer;
+      z-index: 10;
+      gap: 20px;
+    }
+    #overlay h1 {
+      font-size: 42px; letter-spacing: 12px;
+      text-transform: uppercase;
+      text-shadow: 0 0 40px #b8a03088;
+    }
+    #overlay .sub { font-size: 11px; color: #555; letter-spacing: 3px; }
+    #overlay .hint { font-size: 11px; color: #444; margin-top: 4px; }
+
+    #hud {
+      position: fixed; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      color: #b8a03055;
+      font-size: 10px;
+      letter-spacing: 3px;
+      pointer-events: none;
+      display: none;
+    }
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 12px; height: 12px;
+      pointer-events: none;
+      display: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute;
+      background: rgba(255,255,255,0.3);
+    }
+    #crosshair::before { width: 1px; height: 12px; left: 5.5px; top: 0; }
+    #crosshair::after  { width: 12px; height: 1px; top: 5.5px; left: 0; }
+
+    /* ── BARRES HUD ── */
+    #bars-topleft {
+      position: fixed; top: 18px; left: 18px;
+      display: none; flex-direction: column; gap: 6px;
+      pointer-events: none; z-index: 6;
+    }
+    .bar-row { display: flex; align-items: center; gap: 7px; }
+    .bar-label {
+      font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,0.35);
+      width: 26px; text-align: right; text-transform: uppercase;
+    }
+    .bar-track {
+      width: 110px; height: 6px;
+      background: rgba(0,0,0,0.45);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 3px;
+      transition: width 0.3s ease, opacity 0.4s ease;
+    }
+    #bar-hp-fill    { background: #8b1a1a; box-shadow: 0 0 4px #8b1a1a88; }
+    #bar-mental-fill{ background: #b8a456; box-shadow: 0 0 4px #b8a45644; }
+    #bar-hunger-fill{ background: #a0622a; box-shadow: 0 0 4px #a0622a44; }
+
+    /* Stamina — centrée sous le crosshair */
+    #stamina-wrap {
+      position: fixed;
+      top: calc(50% + 22px); left: 50%;
+      transform: translateX(-50%);
+      width: 80px; height: 4px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 2px; overflow: hidden;
+      pointer-events: none; z-index: 6;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    #stamina-fill {
+      height: 100%; border-radius: 2px;
+      background: rgba(180,200,255,0.75);
+      transition: width 0.1s linear;
+    }
+
+    /* ── MOBILE UI ── */
+    #mobile-ui {
+      display: none;
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+    #joystick-zone {
+      position: absolute;
+      left: 0; bottom: 0;
+      width: 50%; height: 100%;
+      pointer-events: all;
+    }
+    #joystick-base {
+      position: absolute;
+      width: 130px; height: 130px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.18);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+    }
+    #joystick-thumb {
+      position: absolute;
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      background: rgba(184,160,48,0.55);
+      border: 2px solid rgba(184,160,48,0.85);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+    }
+    #look-zone {
+      position: absolute;
+      right: 0; bottom: 0;
+      width: 50%; height: 100%;
+      pointer-events: all;
+    }
+    #btn-sprint {
+      position: absolute;
+      right: 28px; bottom: 36px;
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: rgba(184,160,48,0.18);
+      border: 2px solid rgba(184,160,48,0.5);
+      color: #b8a030;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.1s;
+    }
+    #btn-sprint.active {
+      background: rgba(184,160,48,0.45);
+      border-color: rgba(184,160,48,0.9);
+    }
+
+    /* ── BOUTON MENU (desktop + mobile) ── */
+    #btn-menu {
+      position: fixed; top: 16px; right: 16px;
+      width: 42px; height: 42px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(184,160,48,0.35);
+      color: #b8a030;
+      font-size: 18px;
+      display: none;
+      align-items: center; justify-content: center;
+      cursor: pointer;
+      z-index: 8;
+      pointer-events: all;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #btn-menu:hover { background: rgba(30,24,0,0.8); }
+
+    /* ── HOTBAR (2 cases en bas au centre) ── */
+    #hotbar {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      display: none; gap: 6px;
+      pointer-events: all; z-index: 6;
+    }
+    .hotbar-slot {
+      width: 58px; height: 58px;
+      border: 2px solid rgba(180,160,48,0.35);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+    .hotbar-slot.selected {
+      border-color: rgba(180,160,48,0.95);
+      background: rgba(30,24,0,0.75);
+      box-shadow: 0 0 10px rgba(180,160,48,0.3);
+    }
+    .hotbar-slot .slot-key {
+      position: absolute; bottom: 3px; right: 5px;
+      font-size: 8px; color: rgba(255,255,255,0.25);
+      font-family: monospace;
+    }
+    .hotbar-slot .slot-icon {
+      font-size: 22px; pointer-events: none;
+    }
+
+    /* ── BACKPACK ── */
+    #backpack-overlay {
+      position: fixed; inset: 0;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.6);
+      z-index: 20; pointer-events: all;
+    }
+    #backpack-panel {
+      background: rgba(12,10,4,0.96);
+      border: 1px solid rgba(180,160,48,0.4);
+      border-radius: 10px;
+      padding: 20px 24px 24px;
+      display: flex; flex-direction: column; gap: 14px;
+      min-width: 240px;
+    }
+    #backpack-panel h3 {
+      color: #b8a030; font-size: 11px; letter-spacing: 3px;
+      text-transform: uppercase; text-align: center;
+      font-family: monospace;
+    }
+    #backpack-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 64px);
+      grid-template-rows: repeat(2, 64px);
+      gap: 6px;
+    }
+    .bp-slot {
+      width: 64px; height: 64px;
+      border: 1px solid rgba(180,160,48,0.3);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      font-size: 24px;
+    }
+    .bp-slot:hover, .bp-slot.selected {
+      border-color: rgba(180,160,48,0.85);
+      background: rgba(30,24,0,0.6);
+    }
+    #btn-backpack:hover { background: rgba(30,24,0,0.8); }
+    #btn-backpack {
+      position: fixed; top: 66px; right: 16px;
+      width: 42px; height: 42px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(184,160,48,0.35);
+      color: #b8a030; font-size: 18px;
+      display: none; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 8;
+      pointer-events: all;
+      user-select: none; -webkit-user-select: none;
+    }
+    #btn-backpack:hover { background: rgba(30,24,0,0.8); }
+
+    /* ── ITEMS dans les slots ── */
+    .slot-item {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      width: 100%; height: 100%;
+      position: relative; pointer-events: none;
+    }
+    .slot-item .item-icon { font-size: 22px; line-height: 1; }
+    .slot-item .item-count {
+      position: absolute; bottom: 2px; right: 4px;
+      font-size: 9px; color: #ffe; font-family: monospace;
+    }
+    .slot-item .item-bar {
+      position: absolute; bottom: 0; left: 2px; right: 2px;
+      height: 3px; border-radius: 2px; background: rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+    .slot-item .item-bar-fill {
+      height: 100%; border-radius: 2px;
+      background: #f0c030; transition: width 0.3s;
+    }
+    /* Slot dragging */
+    .hotbar-slot.drag-over, .bp-slot.drag-over {
+      border-color: rgba(255,220,80,0.9) !important;
+      background: rgba(60,48,0,0.8) !important;
+    }
+    .hotbar-slot.dragging, .bp-slot.dragging {
+      opacity: 0.4;
+    }
+
+    /* ── PROMPT RAMASSER ── */
+    #pickup-prompt {
+      position: fixed; top: 54%; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.65);
+      border: 1px solid rgba(180,160,48,0.5);
+      border-radius: 6px; padding: 5px 12px;
+      color: #c8a840; font-size: 11px; letter-spacing: 2px;
+      pointer-events: none; display: none; z-index: 7;
+      white-space: nowrap;
+    }
+    /* Bouton ramasser mobile */
+    #btn-pickup {
+      position: fixed; bottom: 100px; left: 50%;
+      transform: translateX(-50%);
+      width: 70px; height: 70px; border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(180,160,48,0.6);
+      color: #c8a840; font-size: 10px; letter-spacing: 1px;
+      display: none; align-items: center; justify-content: center;
+      pointer-events: all; z-index: 7; text-align: center;
+      line-height: 1.3;
+    }
+
+    /* ── BOUTON UTILISER (mobile) ── */
+    #btn-use {
+      position: fixed; bottom: 190px; right: 28px;
+      width: 70px; height: 70px; border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(180,160,48,0.5);
+      color: #c8a840; font-size: 10px; letter-spacing: 1px;
+      display: none; align-items: center; justify-content: center;
+      pointer-events: all; z-index: 7; text-align: center;
+      line-height: 1.3;
+    }
+    #btn-use.has-item {
+      border-color: rgba(180,160,48,0.9);
+      background: rgba(30,24,0,0.7);
+    }
+
+    /* ── DROP ZONE (backpack ouvert) ── */
+    #drop-zone {
+      position: fixed; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      width: 120px; height: 40px;
+      border: 2px dashed rgba(220,60,60,0.5);
+      border-radius: 8px;
+      color: rgba(220,60,60,0.6);
+      font-size: 10px; letter-spacing: 2px; font-family: monospace;
+      display: none; align-items: center; justify-content: center;
+      z-index: 21; pointer-events: all;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #drop-zone.drag-over {
+      border-color: rgba(220,60,60,1);
+      color: rgba(220,60,60,1);
+      background: rgba(100,0,0,0.3);
+    }
+  </style>
+<body>
+
+<div id="overlay">
+  <h1>Backrooms</h1>
+  <div class="sub">LEVEL 0</div>
+  <div class="hint">CLIC POUR ENTRER &nbsp;·&nbsp; ZQSD — marcher &nbsp;·&nbsp; SHIFT — courir &nbsp;·&nbsp; ESC — sortir</div>
+</div>
+<div id="hud">LEVEL 0 &nbsp;·&nbsp; NE PAS REGARDER DERRIÈRE VOUS</div>
+<div id="crosshair"></div>
+<div id="btn-menu" title="Menu">&#9776;</div>
+
+<!-- Barres top-left -->
+<div id="bars-topleft">
+  <div class="bar-row">
+    <span class="bar-label">VIE</span>
+    <div class="bar-track"><div class="bar-fill" id="bar-hp-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-row">
+    <span class="bar-label">MEN</span>
+    <div class="bar-track"><div class="bar-fill" id="bar-mental-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-row">
+    <span class="bar-label">FAI</span>
+    <div class="bar-track"><div class="bar-fill" id="bar-hunger-fill" style="width:100%"></div></div>
+  </div>
+</div>
+
+<!-- Stamina sous le crosshair -->
+<div id="stamina-wrap"><div id="stamina-fill" style="width:100%"></div></div>
+
+<!-- Hotbar -->
+<div id="hotbar">
+  <div class="hotbar-slot selected" data-slot="0">
+    <span class="slot-icon"></span>
+    <span class="slot-key">1</span>
+  </div>
+  <div class="hotbar-slot" data-slot="1">
+    <span class="slot-icon"></span>
+    <span class="slot-key">2</span>
+  </div>
+</div>
+
+<!-- Backpack overlay -->
+<div id="backpack-overlay">
+  <div id="backpack-panel">
+    <h3>&#x1F392; Sac à dos</h3>
+    <div id="backpack-grid">
+      <div class="bp-slot" data-bp="0"></div>
+      <div class="bp-slot" data-bp="1"></div>
+      <div class="bp-slot" data-bp="2"></div>
+      <div class="bp-slot" data-bp="3"></div>
+      <div class="bp-slot" data-bp="4"></div>
+      <div class="bp-slot" data-bp="5"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Bouton backpack mobile -->
+<div id="btn-backpack" title="Sac à dos">&#x1F392;</div>
+<!-- Bouton utiliser mobile -->
+<div id="btn-use">&#x1F44A;<br>Utiliser</div>
+<!-- Prompt ramasser -->
+<div id="pickup-prompt">[ E ] Ramasser</div>
+<!-- Bouton ramasser mobile -->
+<div id="btn-pickup">&#x1F4E6;<br>Ramasser</div>
+<!-- Drop zone (visible quand backpack ouvert) -->
+<div id="drop-zone">&#x1F5D1; JETER</div>
+
+<div id="mobile-ui">
+  <div id="joystick-zone">
+    <div id="joystick-base"></div>
+    <div id="joystick-thumb"></div>
+  </div>
+  <div id="look-zone"></div>
+  <div id="btn-sprint">SPRINT</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+window.addEventListener('error', function(e) {
+  document.body.style.background = '#300';
+  document.body.innerHTML = '<pre style="color:#f88;padding:20px;font-size:13px">ERREUR: ' + e.message + '\nLigne: ' + e.lineno + '\nFichier: ' + e.filename + '</pre>';
+});
+
+// ═══════════════════════════════════════════════
+//  TEXTURES — canvas-generated, fidèles aux refs
+// ═══════════════════════════════════════════════
+
+function makeWallTex() {
+  // Mur jaune-or grainé (stucco bumpy)
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const ctx = c.getContext('2d');
+  // Base jaune-or
+  ctx.fillStyle = '#c8960a';
+  ctx.fillRect(0, 0, 512, 512);
+  // Bumps aléatoires — simuler stucco
+  for (let i = 0; i < 8000; i++) {
+    const x = Math.random()*512, y = Math.random()*512;
+    const r = Math.random()*5 + 1;
+    const bright = Math.random();
+    const alpha = 0.15 + Math.random()*0.25;
+    if (bright > 0.5) {
+      ctx.fillStyle = `rgba(210,160,20,${alpha})`;
+    } else {
+      ctx.fillStyle = `rgba(100,70,0,${alpha})`;
+    }
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r*0.6, Math.random()*Math.PI, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // Légère variation de teinte par zones
+  for (let i = 0; i < 15; i++) {
+    const x = Math.random()*512, y = Math.random()*512;
+    const grad = ctx.createRadialGradient(x,y,0,x,y,80+Math.random()*60);
+    grad.addColorStop(0, `rgba(180,120,0,0.12)`);
+    grad.addColorStop(1, `rgba(180,120,0,0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,512,512);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1.5, 1); // mur jaune stucco au sol — légèrement étiré
+  return t;
+}
+
+function makeFloorTex() {
+  // Moquette verte à chevrons alternés — fidèle à l'image de référence
+  const S = 512;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const ctx = c.getContext('2d');
+
+  // Fond vert olive clair (couleur de base de l'image)
+  ctx.fillStyle = '#8fa040';
+  ctx.fillRect(0, 0, S, S);
+
+  // Paramètres du motif
+  const COL_W  = 64;   // largeur d'une colonne
+  const ROW_H  = 80;   // hauteur d'une répétition de flèche
+  const nCols  = Math.ceil(S / COL_W);
+
+  ctx.lineJoin = 'round';
+  ctx.lineCap  = 'round';
+
+  for (let col = 0; col < nCols; col++) {
+    const cx = col * COL_W + COL_W / 2;
+    // Colonne impaire → décalage vertical de ROW_H/2 (alternance)
+    const offset = (col % 2 === 1) ? ROW_H / 2 : 0;
+
+    // ── Bande verticale centrale sombre ──
+    ctx.fillStyle = 'rgba(55,68,8,0.55)';
+    ctx.fillRect(cx - 5, 0, 10, S);
+
+    // ── Tirets clairs sur la bande (entre les flèches) ──
+    for (let y = -ROW_H; y < S + ROW_H; y += ROW_H) {
+      const ty = y + offset + ROW_H * 0.72;
+      ctx.fillStyle = 'rgba(195,215,110,0.30)';
+      ctx.fillRect(cx - 1, ty, 2, ROW_H * 0.18);
+    }
+
+    // ── Flèches doubles répétées ──
+    for (let y = -ROW_H; y < S + ROW_H; y += ROW_H) {
+      const baseY = y + offset;
+
+      // Grande flèche (chevron principal) — couleur olive foncée
+      const gy1 = baseY + ROW_H * 0.18;  // pointe haute gauche/droite
+      const gy2 = baseY + ROW_H * 0.44;  // pointe basse (centre)
+      ctx.strokeStyle = 'rgba(58,72,6,0.88)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(cx - 22, gy1);
+      ctx.lineTo(cx,       gy2);
+      ctx.lineTo(cx + 22, gy1);
+      ctx.stroke();
+
+      // Petite flèche (chevron secondaire) — légèrement en dessous
+      const sy1 = baseY + ROW_H * 0.50;
+      const sy2 = baseY + ROW_H * 0.70;
+      ctx.strokeStyle = 'rgba(58,72,6,0.65)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(cx - 15, sy1);
+      ctx.lineTo(cx,       sy2);
+      ctx.lineTo(cx + 15, sy1);
+      ctx.stroke();
+    }
+  }
+
+  // Grain de moquette léger
+  for (let i = 0; i < 5000; i++) {
+    const x = Math.random()*S, y = Math.random()*S;
+    const v = (Math.random()-0.5)*18;
+    ctx.fillStyle = `rgba(${120+v},${140+v},${45+v},0.07)`;
+    ctx.fillRect(x, y, 1, 2);
+  }
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 1); // moquette sur murs — 2 répétitions en largeur, 1 en hauteur
+  return t;
+}
+
+function makeCeilTex() {
+  const S = 512;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const ctx = c.getContext('2d');
+
+  // Fond dalle gris clair chaud
+  ctx.fillStyle = '#d4d2ce';
+  ctx.fillRect(0, 0, S, S);
+
+  // Texture acoustique pointillée
+  for (let i = 0; i < 5000; i++) {
+    const x = Math.random()*S, y = Math.random()*S;
+    const r = Math.random()*1.5 + 0.2;
+    const v = Math.floor(Math.random()*55 + 100);
+    ctx.fillStyle = `rgba(${v},${v},${v},0.5)`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Joint de dalle — bordure de la texture = joint entre dalles
+  ctx.strokeStyle = '#9a9894';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(2, 2, S-4, S-4);
+
+  // ── Pas de bandeau LED dans la texture — les mesh 3D s'en chargent ──
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1.0, 1.0); // une dalle = une répétition = dalles très grandes
+  return t;
+}
+
+// ═══════════════════════════════════════════════
+//  ENGINE
+// ═══════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111008);
+scene.fog = new THREE.FogExp2(0x1a1600, 0.055);
+
+const camera = new THREE.PerspectiveCamera(80, innerWidth/innerHeight, 0.05, 80);
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ═══════════════════════════════════════════════
+//  WORLD — open grid + random walls (vrai style Backrooms)
+// ═══════════════════════════════════════════════
+const COLS = 40;   // colonnes
+const ROWS = 40;   // lignes
+const CELL = 4;    // unités Three.js par cellule
+const WH   = 3.2;  // hauteur murs
+const WALL_DENSITY = 0.22; // 22% de cases = mur
+
+// Grille : 0=libre, 1=mur
+const grid = [];
+for (let r = 0; r < ROWS; r++) {
+  grid[r] = [];
+  for (let c = 0; c < COLS; c++) {
+    // Bords toujours solides
+    if (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) {
+      grid[r][c] = 1;
+    } else {
+      grid[r][c] = Math.random() < WALL_DENSITY ? 1 : 0;
+    }
+  }
+}
+
+// S'assurer que le spawn (centre) est libre sur 3×3
+const SR = Math.floor(ROWS/2), SC = Math.floor(COLS/2);
+for (let dr = -1; dr <= 1; dr++)
+  for (let dc = -1; dc <= 1; dc++)
+    grid[SR+dr][SC+dc] = 0;
+
+// Garantir la connectivité par flood-fill depuis le spawn
+// On ouvre des passages si une zone est isolée
+function floodFill(sr, sc) {
+  const visited = Array.from({length:ROWS}, ()=>new Array(COLS).fill(false));
+  const stack = [[sr,sc]];
+  visited[sr][sc] = true;
+  while (stack.length) {
+    const [r,c] = stack.pop();
+    for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!visited[nr][nc]&&grid[nr][nc]===0) {
+        visited[nr][nc]=true;
+        stack.push([nr,nc]);
+      }
+    }
+  }
+  return visited;
+}
+
+// Ouvrir des couloirs pour relier les zones isolées (3 passes)
+for (let pass = 0; pass < 3; pass++) {
+  const visited = floodFill(SR, SC);
+  for (let r = 1; r < ROWS-1; r++) {
+    for (let c = 1; c < COLS-1; c++) {
+      if (grid[r][c] === 0 && !visited[r][c]) {
+        // Trouver la direction vers la zone principale
+        let bestR = r, bestC = c;
+        let found = false;
+        for (let dist = 1; dist < 20 && !found; dist++) {
+          for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0],[-1,-1],[1,1],[-1,1],[1,-1]]) {
+            const tr=r+dr*dist, tc=c+dc*dist;
+            if (tr>=0&&tr<ROWS&&tc>=0&&tc<COLS&&visited[tr][tc]) {
+              // Creuser un couloir
+              let cr=r, cc=c;
+              while (cr!==tr||cc!==tc) {
+                grid[cr][cc]=0;
+                if (Math.abs(tr-cr)>Math.abs(tc-cc)) cr+= tr>cr?1:-1;
+                else cc+= tc>cc?1:-1;
+              }
+              found=true; break;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// Build instanced meshes
+const wallTex  = makeWallTex();
+const floorTex = makeFloorTex();
+const ceilTex  = makeCeilTex();
+
+// chevrons verts → MURS  |  stucco jaune → SOL  |  dalles → PLAFOND
+const wallMat  = new THREE.MeshLambertMaterial({ map: floorTex });
+const floorMat = new THREE.MeshLambertMaterial({ map: wallTex });
+const ceilMat  = new THREE.MeshLambertMaterial({ map: ceilTex });
+
+// Count
+let nWalls=0, nFloors=0;
+for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+  if (grid[r][c]===1) nWalls++; else nFloors++;
+}
+
+const wallGeo  = new THREE.BoxGeometry(CELL, WH, CELL);
+const floorGeo = new THREE.PlaneGeometry(CELL, CELL);
+const ceilGeo  = new THREE.PlaneGeometry(CELL, CELL);
+
+const iWall  = new THREE.InstancedMesh(wallGeo,  wallMat,  nWalls);
+const iFloor = new THREE.InstancedMesh(floorGeo, floorMat, nFloors);
+const iCeil  = new THREE.InstancedMesh(ceilGeo,  ceilMat,  nFloors);
+
+const dummy = new THREE.Object3D();
+let wi=0, fi=0;
+
+for (let r=0;r<ROWS;r++) {
+  for (let c=0;c<COLS;c++) {
+    const x = c*CELL, z = r*CELL;
+    if (grid[r][c]===1) {
+      dummy.position.set(x, WH/2, z);
+      dummy.rotation.set(0,0,0);
+      dummy.updateMatrix();
+      iWall.setMatrixAt(wi++, dummy.matrix);
+    } else {
+      dummy.position.set(x, 0, z);
+      dummy.rotation.set(-Math.PI/2,0,0);
+      dummy.updateMatrix();
+      iFloor.setMatrixAt(fi, dummy.matrix);
+      dummy.position.set(x, WH, z);
+      dummy.rotation.set(Math.PI/2,0,0);
+      dummy.updateMatrix();
+      iCeil.setMatrixAt(fi, dummy.matrix);
+      fi++;
+    }
+  }
+}
+iWall.instanceMatrix.needsUpdate  = true;
+iFloor.instanceMatrix.needsUpdate = true;
+iCeil.instanceMatrix.needsUpdate  = true;
+scene.add(iWall, iFloor, iCeil);
+
+// ═══════════════════════════════════════════════
+//  PLINTHE — bande vert-marron-jaunâtre en bas des murs
+// ═══════════════════════════════════════════════
+function makePlintheTex() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  // Couleur vert-marron-jaunâtre
+  const g = ctx.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0,    '#5a6020');
+  g.addColorStop(0.35, '#4a5018');
+  g.addColorStop(0.7,  '#3d4212');
+  g.addColorStop(1,    '#2e3208');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 64);
+  // Grain
+  for (let i = 0; i < 800; i++) {
+    const x = Math.random()*256, y = Math.random()*64;
+    const v = (Math.random()-0.5)*15;
+    ctx.fillStyle = `rgba(${80+v},${85+v},${20+v},0.12)`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // Ligne de séparation haute (bord net)
+  ctx.fillStyle = 'rgba(30,32,8,0.6)';
+  ctx.fillRect(0, 0, 256, 2);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4, 1);
+  return t;
+}
+
+const plintheMat = new THREE.MeshLambertMaterial({ map: makePlintheTex() });
+const plintheH   = 0.20;
+
+// Deux géos distinctes — pas de rotation nécessaire
+const plintheGeoX = new THREE.BoxGeometry(CELL, plintheH, 0.04); // court sur X → murs haut/bas
+const plintheGeoZ = new THREE.BoxGeometry(0.04, plintheH, CELL); // court sur Z → murs gauche/droite
+
+const dirs4 = [
+  { dr: 0, dc:  1, ox:  CELL/2, oz: 0,       geo: plintheGeoZ }, // mur à droite
+  { dr: 0, dc: -1, ox: -CELL/2, oz: 0,       geo: plintheGeoZ }, // mur à gauche
+  { dr: 1, dc:  0, ox: 0,       oz:  CELL/2, geo: plintheGeoX }, // mur en bas
+  { dr:-1, dc:  0, ox: 0,       oz: -CELL/2, geo: plintheGeoX }, // mur en haut
+];
+
+// Compter par type de géo
+let nPlinthesX = 0, nPlinthesZ = 0;
+for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+  if (grid[r][c] !== 0) continue;
+  for (const d of dirs4) {
+    const nr=r+d.dr, nc=c+d.dc;
+    if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1) {
+      if (d.geo === plintheGeoX) nPlinthesX++; else nPlinthesZ++;
+    }
+  }
+}
+
+const iPlinthX = new THREE.InstancedMesh(plintheGeoX, plintheMat, nPlinthesX);
+const iPlinthZ = new THREE.InstancedMesh(plintheGeoZ, plintheMat, nPlinthesZ);
+let pxi=0, pzi=0;
+
+for (let r=0;r<ROWS;r++) {
+  for (let c=0;c<COLS;c++) {
+    if (grid[r][c] !== 0) continue;
+    const wx = c*CELL, wz = r*CELL;
+    for (const d of dirs4) {
+      const nr=r+d.dr, nc=c+d.dc;
+      if (!(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1)) continue;
+      dummy.position.set(wx + d.ox, plintheH/2, wz + d.oz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      if (d.geo === plintheGeoX) iPlinthX.setMatrixAt(pxi++, dummy.matrix);
+      else                        iPlinthZ.setMatrixAt(pzi++, dummy.matrix);
+    }
+  }
+}
+iPlinthX.instanceMatrix.needsUpdate = true;
+iPlinthZ.instanceMatrix.needsUpdate = true;
+scene.add(iPlinthX, iPlinthZ);
+
+// ═══════════════════════════════════════════════
+//  LIGHTING — marge stricte + mesh LED visible
+// ═══════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0xffe090, 0.18));
+
+// Mesh LED émissif sur le plafond — 2 tubes côte à côte comme la texture
+// Tube : long sur X, fin sur Z, plat sur Y
+// Le PlaneGeometry plafond a rotation.x = PI/2 ce qui inverse les axes UV :
+// canvas X → monde Z  |  canvas Y → monde X
+// Les tubes dans la texture sont larges sur canvas-X = monde-Z
+// et leur position varie sur canvas-Y = monde-X
+//
+// tubeW  = largeur tube sur canvas-X → géo doit être large sur Z
+// offsets → sur X (canvas-Y)
+const tubeW  = CELL * 0.76;  // le long de Z (canvas X)
+const tubeD  = CELL * 0.07;  // le long de X (canvas Y = épaisseur du tube)
+const tubeHh = 0.03;
+
+// Offsets sur X (canvas Y = monde X)
+// tube1 : (ledY + tubeH/2 - 0.5) * CELL  → (0.38 + 0.035 - 0.5) * CELL
+// tube2 : (ledY + tubeH + gap + tubeH/2 - 0.5) * CELL → (0.515 - 0.5) * CELL
+const tube1OffsetX = (0.38 + 0.035 - 0.5) * CELL;   // ≈ -0.34
+const tube2OffsetX = (0.38 + 0.07 + 0.03 + 0.035 - 0.5) * CELL; // ≈ +0.06
+
+// Géométrie : BoxGeometry(X, Y, Z) → tubes longs sur Z
+const ledGeoOn  = new THREE.BoxGeometry(tubeD, tubeHh, tubeW);
+const ledMatOn  = new THREE.MeshBasicMaterial({ color: 0xfffde0 });
+const ledMatOff = new THREE.MeshBasicMaterial({ color: 0x1e1c14 });
+
+// Vérifie qu'une cellule est libre ET que ses 4 voisins directs sont aussi libres
+function isSafeCell(r, c) {
+  if (r<2||r>ROWS-3||c<2||c>COLS-3) return false;
+  if (grid[r][c] !== 0) return false;
+  for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+    if (grid[r+dr][c+dc] !== 0) return false;
+  }
+  return true;
+}
+
+const activeLights = [];
+
+for (let r=3; r<ROWS-2; r+=5) {
+  for (let c=3; c<COLS-2; c+=5) {
+    let placed = false;
+    for (let dr=-3; dr<=3&&!placed; dr++) {
+      for (let dc=-3; dc<=3&&!placed; dc++) {
+        const nr=r+dr, nc=c+dc;
+        if (!isSafeCell(nr, nc)) continue;
+
+        const px = nc*CELL, pz = nr*CELL, py = WH - 0.015;
+
+        // PointLight
+        const pl = new THREE.PointLight(0xffe0a0, 1.6, 16);
+        pl.position.set(px, WH - 0.2, pz);
+        scene.add(pl);
+
+        // 2 tubes ON (visibles quand allumé)
+        const tube1on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
+        tube1on.position.set(px + tube1OffsetX, py, pz);
+        scene.add(tube1on);
+
+        const tube2on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
+        tube2on.position.set(px + tube2OffsetX, py, pz);
+        scene.add(tube2on);
+
+        // 2 tubes OFF (visibles quand éteint)
+        const tube1off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+        tube1off.position.set(px + tube1OffsetX, py, pz);
+        tube1off.visible = false;
+        scene.add(tube1off);
+
+        const tube2off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+        tube2off.position.set(px + tube2OffsetX, py, pz);
+        tube2off.visible = false;
+        scene.add(tube2off);
+
+        const willFlicker = Math.random() < 0.3;
+        activeLights.push({
+          light: pl, base: 1.6,
+          flicker: willFlicker,
+          tubesOn:  [tube1on,  tube2on],
+          tubesOff: [tube1off, tube2off],
+          isOn: true
+        });
+        placed = true;
+      }
+    }
+  }
+}
+
+// ── LEDs éteintes décoratives — toutes les cellules libres restantes ──
+// Construire un Set des cellules déjà occupées par une lumière active
+const litCells = new Set();
+for (let r=3; r<ROWS-2; r+=5)
+  for (let c=3; c<COLS-2; c+=5)
+    for (let dr=-3; dr<=3; dr++)
+      for (let dc=-3; dc<=3; dc++) {
+        const nr=r+dr, nc=c+dc;
+        if (isSafeCell(nr,nc)) { litCells.add(nr+','+nc); break; }
+      }
+
+// Placer un mesh éteint sur chaque cellule libre non déjà éclairée (espacement 2)
+for (let r=1; r<ROWS-1; r+=2) {
+  for (let c=1; c<COLS-1; c+=2) {
+    if (grid[r][c] !== 0) continue;
+    if (litCells.has(r+','+c)) continue;
+    const px = c*CELL, pz = r*CELL, py = WH - 0.015;
+    const d1 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+    d1.position.set(px + tube1OffsetX, py, pz);
+    scene.add(d1);
+    const d2 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+    d2.position.set(px + tube2OffsetX, py, pz);
+    scene.add(d2);
+  }
+}
+
+let flickerTick = 0;
+function updateLights() {
+  flickerTick++;
+  if (flickerTick % 3 !== 0) return;
+  activeLights.forEach(l => {
+    if (!l.flicker) return;
+    let changed = false;
+    if (Math.random() < 0.035) {
+      // Éteindre ou rallumer
+      l.isOn = !l.isOn;
+      l.light.intensity = l.isOn ? l.base : 0;
+      changed = true;
+    } else if (l.isOn && Math.random() < 0.008) {
+      // Sursaut bref
+      l.light.intensity = l.base * 2.0;
+    } else if (l.isOn) {
+      // Légère variation
+      l.light.intensity = l.base * (0.85 + Math.random() * 0.3);
+    }
+    if (changed) {
+      l.tubesOn.forEach(m  => m.visible =  l.isOn);
+      l.tubesOff.forEach(m => m.visible = !l.isOn);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  SON — Web Audio (néon + ambiance)
+// ═══════════════════════════════════════════════
+let audioCtx = null;
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Buzz de néon permanent (bruit filtré basse fréquence)
+  const bufSize = audioCtx.sampleRate * 2;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1);
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf; src.loop = true;
+
+  const bpf = audioCtx.createBiquadFilter();
+  bpf.type = 'bandpass'; bpf.frequency.value = 120; bpf.Q.value = 0.4;
+
+  const gain = audioCtx.createGain(); gain.gain.value = 0.04;
+  src.connect(bpf); bpf.connect(gain); gain.connect(audioCtx.destination);
+  src.start();
+
+  // Son aléatoire toutes les 10–30s (craquement, frottement)
+  function randomSound() {
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(60+Math.random()*40, t);
+    o.frequency.exponentialRampToValueAtTime(20, t+0.3);
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.4);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t+0.5);
+    setTimeout(randomSound, 10000 + Math.random()*20000);
+  }
+  setTimeout(randomSound, 5000 + Math.random()*10000);
+
+  // Ambiance basse (hum grave)
+  const oHum = audioCtx.createOscillator();
+  const gHum = audioCtx.createGain();
+  oHum.frequency.value = 48; oHum.type = 'sine';
+  gHum.gain.value = 0.06;
+  oHum.connect(gHum); gHum.connect(audioCtx.destination);
+  oHum.start();
+}
+
+// ═══════════════════════════════════════════════
+//  COLLISION
+// ═══════════════════════════════════════════════
+function isWall(wx, wz) {
+  const c = Math.round(wx / CELL);
+  const r = Math.round(wz / CELL);
+  if (r<0||r>=ROWS||c<0||c>=COLS) return true;
+  return grid[r][c] === 1;
+}
+
+// ═══════════════════════════════════════════════
+//  DÉTECTION MOBILE
+// ═══════════════════════════════════════════════
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 900);
+
+// ═══════════════════════════════════════════════
+//  PLAYER — état partagé desktop + mobile
+// ═══════════════════════════════════════════════
+let yaw=0, pitch=0;
+const keys={};
+let bobTime=0, bobY=0;
+
+// Input virtuel (utilisé par les deux modes)
+const vInput = { dx:0, dz:0, sprint:false };
+
+// ── DESKTOP ──
+window.addEventListener('keydown', e=>{ keys[e.code]=true; });
+window.addEventListener('keyup',   e=>{ keys[e.code]=false; });
+
+// Position spawn
+camera.position.set(SC*CELL, 1.7, SR*CELL);
+
+// ── OVERLAY / POINTER LOCK ──
+const overlay   = document.getElementById('overlay');
+const hud       = document.getElementById('hud');
+const crosshair = document.getElementById('crosshair');
+const mobileUI  = document.getElementById('mobile-ui');
+const btnMenu   = document.getElementById('btn-menu');
+
+function showMenu() {
+  overlay.style.display  = 'flex';
+  hud.style.display      = 'none';
+  crosshair.style.display= 'none';
+  mobileUI.style.display = 'none';
+  barsUI.style.display   = 'none';
+  staminaWrap.style.display = 'none';
+  hotbarEl.style.display = 'none';
+  btnBackpack.style.display = 'none';
+  btnUse.style.display   = 'none';
+  dropZone.style.display = 'none';
+  closeBackpackUI();
+  btnMenu.style.display  = 'none';
+}
+function hideMenu() {
+  overlay.style.display  = 'none';
+  hud.style.display      = 'block';
+  barsUI.style.display   = 'flex';
+  staminaWrap.style.display = 'block';
+  hotbarEl.style.display = 'flex';
+  btnMenu.style.display  = 'flex';
+  btnBackpack.style.display = 'flex';
+  if (isMobile) { btnUse.style.display = 'flex'; updateUseButton(); }
+}
+
+btnMenu.addEventListener('click', () => {
+  if (document.pointerLockElement) document.exitPointerLock();
+  showMenu();
+});
+
+// État du jeu : 'menu' | 'playing' | 'backpack'
+let gameState = 'menu';
+
+function enterGame() {
+  gameState = 'playing';
+  hideMenu();
+  if (!isMobile) renderer.domElement.requestPointerLock();
+}
+
+function goToMenu() {
+  gameState = 'menu';
+  if (document.pointerLockElement) document.exitPointerLock();
+  showMenu();
+}
+
+function openBackpackUI() {
+  gameState = 'backpack';
+  backpackOverlay.style.display = 'flex';
+  dropZone.style.display = 'flex';
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+function closeBackpackUI() {
+  gameState = 'playing';
+  backpackOverlay.style.display = 'none';
+  dropZone.style.display = 'none';
+  dragSrc = null;
+  document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
+  if (!isMobile) renderer.domElement.requestPointerLock();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Escape') {
+    e.preventDefault();
+    if (gameState === 'playing') {
+      goToMenu();
+    } else if (gameState === 'menu') {
+      // Re-entrer en jeu depuis le menu
+      if (overlay.style.display !== 'none') enterGame();
+    } else if (gameState === 'backpack') {
+      closeBackpackUI();
+    }
+  }
+  if (e.code === 'Tab') {
+    e.preventDefault();
+    if (gameState === 'playing')  openBackpackUI();
+    else if (gameState === 'backpack') closeBackpackUI();
+  }
+});
+
+// pointerlockchange : seulement pour détecter une perte inattendue
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && gameState === 'playing') {
+    // Lock perdu sans qu'on l'ait demandé (ex: clic hors fenêtre)
+    goToMenu();
+  }
+});
+
+if (isMobile) {
+  overlay.querySelector('.hint').textContent = 'APPUIE POUR ENTRER  ·  Joystick gauche — déplacer  ·  Bouton droit — courir';
+  overlay.addEventListener('click', () => {
+    initAudio();
+    enterGame();
+    mobileUI.style.display = 'block';
+    crosshair.style.display = 'none';
+  });
+} else {
+  overlay.addEventListener('click', () => {
+    initAudio();
+    enterGame();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!document.pointerLockElement) return;
+    yaw   -= e.movementX * 0.0022;
+    pitch -= e.movementY * 0.0022;
+    pitch  = Math.max(-1.3, Math.min(1.3, pitch));
+  });
+}
+
+// ── MOBILE : JOYSTICK + LOOK + SPRINT ──
+if (isMobile) {
+  const joystickZone = document.getElementById('joystick-zone');
+  const joystickBase = document.getElementById('joystick-base');
+  const joystickThumb= document.getElementById('joystick-thumb');
+  const lookZone     = document.getElementById('look-zone');
+  const btnSprint    = document.getElementById('btn-sprint');
+
+  const JOY_RADIUS = 52; // rayon max du thumb en px
+
+  // État joystick
+  let joyActive = false, joyId = null;
+  let joyOriginX = 0, joyOriginY = 0;
+  let joyDx = 0, joyDz = 0;
+
+  // État look
+  let lookId = null, lookLastX = 0, lookLastY = 0;
+
+  // Sprint
+  let sprintActive = false;
+  btnSprint.addEventListener('touchstart', e => {
+    e.preventDefault();
+    sprintActive = true;
+    btnSprint.classList.add('active');
+  }, { passive: false });
+  btnSprint.addEventListener('touchend', e => {
+    e.preventDefault();
+    sprintActive = false;
+    btnSprint.classList.remove('active');
+  }, { passive: false });
+
+  // Joystick — touchstart
+  joystickZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      if (joyActive) continue;
+      joyActive = true;
+      joyId = touch.identifier;
+      joyOriginX = touch.clientX;
+      joyOriginY = touch.clientY;
+      // Afficher base + thumb à la position du doigt
+      joystickBase.style.left  = joyOriginX + 'px';
+      joystickBase.style.top   = joyOriginY + 'px';
+      joystickThumb.style.left = joyOriginX + 'px';
+      joystickThumb.style.top  = joyOriginY + 'px';
+      joystickBase.style.display  = 'block';
+      joystickThumb.style.display = 'block';
+    }
+  }, { passive: false });
+
+  joystickZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      if (touch.identifier !== joyId) continue;
+      const rawX = touch.clientX - joyOriginX;
+      const rawY = touch.clientY - joyOriginY;
+      const dist = Math.hypot(rawX, rawY);
+      const clamp = Math.min(dist, JOY_RADIUS);
+      const angle = Math.atan2(rawY, rawX);
+      const clampedX = Math.cos(angle) * clamp;
+      const clampedY = Math.sin(angle) * clamp;
+      // Déplacer le thumb
+      joystickThumb.style.left = (joyOriginX + clampedX) + 'px';
+      joystickThumb.style.top  = (joyOriginY + clampedY) + 'px';
+      // Normaliser -1..1
+      joyDx = clampedX / JOY_RADIUS;
+      joyDz = clampedY / JOY_RADIUS;
+    }
+  }, { passive: false });
+
+  function endJoy(e) {
+    for (const touch of e.changedTouches) {
+      if (touch.identifier !== joyId) continue;
+      joyActive = false; joyId = null;
+      joyDx = 0; joyDz = 0;
+      joystickBase.style.display  = 'none';
+      joystickThumb.style.display = 'none';
+    }
+  }
+  joystickZone.addEventListener('touchend',    endJoy, { passive: false });
+  joystickZone.addEventListener('touchcancel', endJoy, { passive: false });
+
+  // Look — zone droite (swipe pour regarder)
+  lookZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      if (lookId !== null) continue;
+      lookId    = touch.identifier;
+      lookLastX = touch.clientX;
+      lookLastY = touch.clientY;
+    }
+  }, { passive: false });
+
+  lookZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      if (touch.identifier !== lookId) continue;
+      const dx = touch.clientX - lookLastX;
+      const dy = touch.clientY - lookLastY;
+      yaw   -= dx * 0.004;
+      pitch -= dy * 0.004;
+      pitch  = Math.max(-1.3, Math.min(1.3, pitch));
+      lookLastX = touch.clientX;
+      lookLastY = touch.clientY;
+    }
+  }, { passive: false });
+
+  function endLook(e) {
+    for (const touch of e.changedTouches) {
+      if (touch.identifier === lookId) lookId = null;
+    }
+  }
+  lookZone.addEventListener('touchend',    endLook, { passive: false });
+  lookZone.addEventListener('touchcancel', endLook, { passive: false });
+
+  // Mettre à jour vInput depuis le joystick mobile
+  function updateMobileInput() {
+    if (!joyActive) { vInput.dx=0; vInput.dz=0; return; }
+    // joyDx/joyDz sont en espace écran — convertir en espace monde selon yaw
+    const fx=-Math.sin(yaw), fz=-Math.cos(yaw); // forward
+    const rx= Math.cos(yaw), rz=-Math.sin(yaw); // right
+    vInput.dx = fx * (-joyDz) + rx * joyDx;
+    vInput.dz = fz * (-joyDz) + rz * joyDx;
+    vInput.sprint = sprintActive;
+  }
+}
+
+function updatePlayer(dt) {
+  let dx=0, dz=0, sprint=false;
+
+  if (isMobile) {
+    if (typeof updateMobileInput === 'function') updateMobileInput();
+    dx = vInput.dx; dz = vInput.dz; sprint = vInput.sprint;
+  } else {
+    sprint = keys['ShiftLeft']||keys['ShiftRight'];
+    const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+    const rx= Math.cos(yaw), rz=-Math.sin(yaw);
+    if (keys['KeyW']||keys['KeyZ']) { dx+=fx; dz+=fz; }
+    if (keys['KeyS'])               { dx-=fx; dz-=fz; }
+    if (keys['KeyD'])               { dx+=rx; dz+=rz; }
+    if (keys['KeyA']||keys['KeyQ']) { dx-=rx; dz-=rz; }
+  }
+
+  const len = Math.hypot(dx, dz);
+  const moving = len > 0.01;
+  // Sprint seulement si stamina > 0
+  const actualSprint = sprint && moving && stamina > 0;
+  const speed = actualSprint ? 7.5 : 4;
+
+  if (moving) {
+    const vx=(dx/len)*speed*dt;
+    const vz=(dz/len)*speed*dt;
+    const margin = 0.6;
+    const nx=camera.position.x+vx;
+    const nz=camera.position.z+vz;
+    if (!isWall(nx + Math.sign(vx)*margin, camera.position.z)) camera.position.x=nx;
+    if (!isWall(camera.position.x, nz + Math.sign(vz)*margin)) camera.position.z=nz;
+    bobTime += dt * (actualSprint ? 9 : 6);
+    bobY = Math.sin(bobTime) * (actualSprint ? 0.05 : 0.025);
+  } else {
+    bobY *= 0.85;
+  }
+
+  camera.position.y = 1.7 + bobY;
+  camera.rotation.order='YXZ';
+  camera.rotation.y=yaw;
+  camera.rotation.x=pitch;
+  return { moving, sprint: actualSprint };
+}
+
+// ═══════════════════════════════════════════════
+//  INVENTAIRE — hotbar + backpack
+// ═══════════════════════════════════════════════
+const hotbarEl      = document.getElementById('hotbar');
+const hotbarSlots   = [...document.querySelectorAll('.hotbar-slot')];
+const backpackOverlay = document.getElementById('backpack-overlay');
+const bpSlots       = [...document.querySelectorAll('.bp-slot')];
+const btnBackpack   = document.getElementById('btn-backpack');
+
+let hotbarSelected = 0;
+// gameState gère l'état du backpack ('playing' | 'backpack' | 'menu')
+// Données inventaire (vide pour l'instant)
+const hotbarItems = [null, null];
+const bpItems     = [null, null, null, null, null, null];
+
+function selectHotbar(idx) {
+  hotbarSelected = (idx + hotbarSlots.length) % hotbarSlots.length;
+  hotbarSlots.forEach((s, i) => s.classList.toggle('selected', i === hotbarSelected));
+}
+
+// Clics hotbar (mobile + desktop)
+hotbarSlots.forEach((slot, i) => {
+  slot.addEventListener('click', () => selectHotbar(i));
+  slot.addEventListener('touchend', e => { e.preventDefault(); selectHotbar(i); }, { passive: false });
+});
+
+// Clics cases backpack
+bpSlots.forEach(slot => {
+  slot.addEventListener('click', () => {
+    bpSlots.forEach(s => s.classList.remove('selected'));
+    slot.classList.add('selected');
+  });
+});
+
+// Clic en dehors du panneau → ferme
+backpackOverlay.addEventListener('click', e => {
+  if (e.target === backpackOverlay) closeBackpackUI();
+});
+
+// Bouton backpack (desktop + mobile)
+btnBackpack.addEventListener('click', () => {
+  if (gameState === 'playing')  openBackpackUI();
+  else if (gameState === 'backpack') closeBackpackUI();
+});
+btnBackpack.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (gameState === 'playing')  openBackpackUI();
+  else if (gameState === 'backpack') closeBackpackUI();
+}, { passive: false });
+
+// ── DESKTOP : molette + flèches ──
+window.addEventListener('keydown', e => {
+  if (e.code === 'Digit1') selectHotbar(0);
+  if (e.code === 'Digit2') selectHotbar(1);
+  if (e.code === 'ArrowRight') selectHotbar(hotbarSelected + 1);
+  if (e.code === 'ArrowLeft')  selectHotbar(hotbarSelected - 1);
+});
+window.addEventListener('wheel', e => {
+  if (gameState !== 'playing') return;
+  if (e.deltaY > 0) selectHotbar(hotbarSelected + 1);
+  else              selectHotbar(hotbarSelected - 1);
+}, { passive: true });
+
+// ═══════════════════════════════════════════════
+//  STATS — vie, mental, stamina, faim
+// ═══════════════════════════════════════════════
+let hp      = 100;
+let sanity  = 100;
+let stamina = 100;
+let hunger  = 100; // 0–100
+
+const barHp      = document.getElementById('bar-hp-fill');
+const barMental  = document.getElementById('bar-mental-fill');
+const barHunger  = document.getElementById('bar-hunger-fill');
+const staminaWrap= document.getElementById('stamina-wrap');
+const staminaFill= document.getElementById('stamina-fill');
+const barsUI     = document.getElementById('bars-topleft');
+
+// Stamina : opacité & visibilité
+let staminaVisible  = false;
+let staminaFadeTimer= 0;
+
+function setStaminaVisible(v) {
+  staminaVisible = v;
+  staminaWrap.style.opacity = v ? '1' : '0';
+}
+
+// Sons de folie (Web Audio — générés procéduralement)
+let lastInsaneSound = 0;
+function playInsaneSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // Choisir un effet aléatoire
+  const type = Math.floor(Math.random() * 3);
+  if (type === 0) {
+    // Chuchotement grave (bruit filtré)
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.8, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<d.length;i++) d[i]=(Math.random()*2-1);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const bpf = audioCtx.createBiquadFilter();
+    bpf.type='bandpass'; bpf.frequency.value=300+Math.random()*200; bpf.Q.value=2;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12*(1-(sanity/100)), t+0.2);
+    g.gain.linearRampToValueAtTime(0, t+0.8);
+    src.connect(bpf); bpf.connect(g); g.connect(audioCtx.destination);
+    src.start(t); src.stop(t+0.9);
+  } else if (type === 1) {
+    // Tonalité aiguë dissonante
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(800+Math.random()*400, t);
+    o.frequency.exponentialRampToValueAtTime(200+Math.random()*100, t+0.5);
+    g.gain.setValueAtTime(0.08*(1-(sanity/100)), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t+0.7);
+  } else {
+    // Battement cardiaque grave
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.value = 60;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.15*(1-(sanity/100)), t+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t+0.35);
+    // Second battement
+    const o2 = audioCtx.createOscillator();
+    const g2 = audioCtx.createGain();
+    o2.type='sine'; o2.frequency.value=55;
+    g2.gain.setValueAtTime(0, t+0.15);
+    g2.gain.linearRampToValueAtTime(0.1*(1-(sanity/100)), t+0.18);
+    g2.gain.exponentialRampToValueAtTime(0.001, t+0.45);
+    o2.connect(g2); g2.connect(audioCtx.destination);
+    o2.start(t+0.15); o2.stop(t+0.5);
+  }
+}
+
+function updateStats(dt, moving, sprinting) {
+  // ── STAMINA ──
+  if (sprinting) {
+    stamina = Math.max(0, stamina - dt * 18);
+  } else if (!moving) {
+    stamina = Math.min(100, stamina + dt * 12);
+  } else {
+    stamina = Math.min(100, stamina + dt * 6);
+  }
+
+  // Affichage stamina : visible si on court ou si pas full
+  if (sprinting || stamina < 94) {
+    setStaminaVisible(true);
+    staminaFadeTimer = 1.5; // délai avant de cacher
+  } else if (staminaVisible) {
+    staminaFadeTimer -= dt;
+    if (staminaFadeTimer <= 0) setStaminaVisible(false);
+  }
+  staminaFill.style.width = stamina.toFixed(1) + '%';
+
+  // ── SANITY ──
+  // Descend lentement en permanence (vide en ~8 minutes)
+  sanity = Math.max(0, sanity - dt * 0.21);
+
+  // Sons de folie — plus fréquents quand sanity basse
+  if (audioCtx && sanity < 80) {
+    const interval = 30 - (1 - sanity/80) * 25; // 30s→5s selon sanity
+    lastInsaneSound += dt;
+    if (lastInsaneSound > interval) {
+      playInsaneSound();
+      lastInsaneSound = 0;
+    }
+  }
+
+  // ── VIE ── perd de la vie si sanity < 11
+  if (sanity < 11) {
+    const drain = (1 - sanity/11) * 2.5 * dt; // jusqu'à 2.5 hp/s
+    hp = Math.max(0, hp - drain);
+  }
+
+  // ── FAIM ──
+  // Sprint: -0.28/s (~6 min)  |  Marche: -0.16/s (~10 min)  |  Arrêt: -0.05/s (~33 min)
+  const hungerRate = sprinting ? 0.28 : moving ? 0.16 : 0.05;
+  hunger = Math.max(0, hunger - dt * hungerRate);
+
+  // Faim critique (<11) → perd de la vie (même principe que mental)
+  if (hunger < 11) {
+    const drainH = (1 - hunger/11) * 1.5 * dt;
+    hp = Math.max(0, hp - drainH);
+  }
+
+  barHunger.style.width = hunger.toFixed(1) + '%';
+
+  // Mise à jour des barres
+  barHp.style.width     = hp.toFixed(1) + '%';
+  barMental.style.width = sanity.toFixed(1) + '%';
+
+  // Teinte rouge sur l'écran si hp bas (vignette via fog)
+  if (hp < 30) {
+    const t = 1 - hp/30;
+    scene.fog.color.setRGB(0.15 + t*0.2, 0.08, 0.0);
+  } else {
+    scene.fog.color.setHex(0x1a1600);
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  ITEMS — définitions
+// ═══════════════════════════════════════════════
+const ITEM_DEFS = {
+  almond_water: {
+    id: 'almond_water', name: 'Eau d\'amande', icon: '💧',
+    use(inv) { sanity = Math.min(100, sanity + 35); return true; }
+  },
+  energy_bar: {
+    id: 'energy_bar', name: 'Barre énergie', icon: '🍫',
+    use(inv) { stamina = Math.min(100, stamina + 60); hunger = Math.min(100, hunger + 100/6); return true; }
+  },
+  backshroom: {
+    id: 'backshroom', name: 'Backshroom', icon: '🍄',
+    use(inv) { hunger = Math.min(100, hunger + 200/7); return true; }
+  },
+  flashlight: {
+    id: 'flashlight', name: 'Lampe torche', icon: '🔦',
+    battery: 100, // 0–100
+    use(inv) { return false; } // utilisée passivement
+  },
+};
+
+function makeItem(id) {
+  const def = ITEM_DEFS[id];
+  if (!def) return null;
+  // Copie manuelle pour éviter les problèmes de spread sur méthodes
+  return {
+    id: def.id,
+    name: def.name,
+    icon: def.icon,
+    use: def.use,
+    battery: def.battery !== undefined ? def.battery : undefined,
+  };
+}
+
+// ═══════════════════════════════════════════════
+//  INVENTAIRE — état
+// ═══════════════════════════════════════════════
+// hotbarItems[0..1], bpItems[0..5] — null ou item object
+const invHotbar = [null, null];
+const invBp     = [null, null, null, null, null, null];
+
+// Flashlight active si en hotbar et sélectionnée
+let flashlightMesh = null; // lumière 3D de la torche
+
+function renderSlot(el, item) {
+  el.innerHTML = '';
+  if (!item) return;
+  const div = document.createElement('div');
+  div.className = 'slot-item';
+  const ico = document.createElement('span');
+  ico.className = 'item-icon'; ico.textContent = item.icon;
+  div.appendChild(ico);
+  // Barre batterie pour la torche
+  if (item.id === 'flashlight') {
+    const bar = document.createElement('div'); bar.className = 'item-bar';
+    const fill = document.createElement('div'); fill.className = 'item-bar-fill';
+    fill.style.width = (item.battery !== undefined ? item.battery : 100) + '%';
+    bar.appendChild(fill); div.appendChild(bar);
+  }
+  el.appendChild(div);
+}
+
+function renderAllSlots() {
+  hotbarSlots.forEach((el, i) => {
+    const inner = el.querySelector('.slot-icon') || el;
+    renderSlot(el, invHotbar[i]);
+    // Préserver slot-key
+    if (!el.querySelector('.slot-key')) {
+      const k = document.createElement('span');
+      k.className = 'slot-key'; k.textContent = i+1;
+      el.appendChild(k);
+    }
+  });
+  bpSlots.forEach((el, i) => renderSlot(el, invBp[i]));
+}
+
+function addToInventory(item) {
+  // Essaie hotbar d'abord, puis bp
+  for (let i = 0; i < invHotbar.length; i++) {
+    if (!invHotbar[i]) { invHotbar[i] = item; renderAllSlots(); return true; }
+  }
+  for (let i = 0; i < invBp.length; i++) {
+    if (!invBp[i]) { invBp[i] = item; renderAllSlots(); return true; }
+  }
+  return false; // inventaire plein
+}
+
+// ── UTILISER l'item sélectionné ──
+const btnUse = document.getElementById('btn-use');
+const dropZone = document.getElementById('drop-zone');
+
+function updateUseButton() {
+  if (!isMobile) return;
+  const item = invHotbar[hotbarSelected];
+  if (item && item.id !== 'flashlight' && gameState === 'playing') {
+    btnUse.style.display = 'flex';
+    btnUse.classList.add('has-item');
+  } else {
+    btnUse.style.display = gameState === 'playing' ? 'flex' : 'none';
+    btnUse.classList.remove('has-item');
+  }
+}
+
+function useSelectedItem() {
+  const item = invHotbar[hotbarSelected];
+  if (!item || item.id === 'flashlight') return;
+  const consumed = item.use();
+  if (consumed) { invHotbar[hotbarSelected] = null; renderAllSlots(); }
+  updateUseButton();
+}
+
+// Desktop: clic gauche quand en jeu (pas sur UI)
+renderer.domElement.addEventListener('click', () => {
+  if (gameState === 'playing') useSelectedItem();
+});
+// Mobile: bouton dédié
+btnUse.addEventListener('click', useSelectedItem);
+btnUse.addEventListener('touchend', e => { e.preventDefault(); useSelectedItem(); }, { passive: false });
+
+// ═══════════════════════════════════════════════
+//  CAISSES — génération dans le monde
+// ═══════════════════════════════════════════════
+const crateGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+
+// Texture caisse bois canvas
+const crateCanvas = document.createElement('canvas'); crateCanvas.width = crateCanvas.height = 64;
+const crateCtx = crateCanvas.getContext('2d');
+crateCtx.fillStyle = '#8B5E2A'; crateCtx.fillRect(0,0,64,64);
+// Planches
+crateCtx.strokeStyle = '#5C3A10'; crateCtx.lineWidth = 2;
+crateCtx.beginPath(); crateCtx.moveTo(0,21); crateCtx.lineTo(64,21); crateCtx.stroke();
+crateCtx.beginPath(); crateCtx.moveTo(0,43); crateCtx.lineTo(64,43); crateCtx.stroke();
+crateCtx.beginPath(); crateCtx.moveTo(21,0); crateCtx.lineTo(21,64); crateCtx.stroke();
+crateCtx.beginPath(); crateCtx.moveTo(43,0); crateCtx.lineTo(43,64); crateCtx.stroke();
+// Grain
+for (let i=0;i<200;i++){const x=Math.random()*64,y=Math.random()*64; crateCtx.fillStyle=`rgba(0,0,0,0.08)`; crateCtx.fillRect(x,y,1,2);}
+const crateTex = new THREE.CanvasTexture(crateCanvas);
+const crateMat = new THREE.MeshLambertMaterial({ map: crateTex });
+
+// Spawn caisses dans des cellules libres
+const CRATE_COUNT = 18;
+const crateData = []; // { mesh, row, col, open:false }
+const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight'];
+
+for (let i = 0; i < CRATE_COUNT; i++) {
+  let r, c, tries = 0;
+  do { r = 1+Math.floor(Math.random()*(ROWS-2)); c = 1+Math.floor(Math.random()*(COLS-2)); tries++; }
+  while ((grid[r][c] !== 0 || (Math.abs(r-SR)<3 && Math.abs(c-SC)<3)) && tries < 200);
+  if (grid[r][c] !== 0) continue;
+  const mesh = new THREE.Mesh(crateGeo, crateMat.clone());
+  mesh.position.set(c*CELL, 0.35, r*CELL);
+  scene.add(mesh);
+  crateData.push({ mesh, r, c, open: false });
+}
+
+// Items au sol
+const groundItems = []; // { mesh, item, x, z }
+const groundItemGeo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+
+function spawnGroundItem(itemId, x, z) {
+  const item = makeItem(itemId);
+  // Petit cube coloré
+  const colors = { almond_water:0x4488ff, energy_bar:0xff8800, backshroom:0x884488, flashlight:0xffcc00 };
+  const col = colors[itemId] !== undefined ? colors[itemId] : 0xffffff;
+  const mat = new THREE.MeshLambertMaterial({ color: col });
+  const mesh = new THREE.Mesh(groundItemGeo, mat);
+  const ox = (Math.random()-0.5)*1.2, oz = (Math.random()-0.5)*1.2;
+  mesh.position.set(x+ox, 0.175, z+oz);
+  scene.add(mesh);
+  groundItems.push({ mesh, item, x: x+ox, z: z+oz });
+}
+
+// ── Prompt / bouton mobile ──
+const pickupPrompt = document.getElementById('pickup-prompt');
+const btnPickup    = document.getElementById('btn-pickup');
+let nearCrate = null, nearItem = null;
+
+if (isMobile) btnPickup.style.display = 'none'; // géré dynamiquement
+
+function interact() {
+  if (nearItem) {
+    const idx = groundItems.indexOf(nearItem);
+    if (idx !== -1) {
+      const ok = addToInventory(nearItem.item);
+      if (ok) { scene.remove(nearItem.mesh); groundItems.splice(idx, 1); }
+    }
+    nearItem = null;
+  } else if (nearCrate && !nearCrate.open) {
+    nearCrate.open = true;
+    // Tinter la caisse en ouvert
+    nearCrate.mesh.material.color.setHex(0x3a2008);
+    // Drop 1–3 items aléatoires
+    const n = 1 + Math.floor(Math.random()*3);
+    for (let i=0;i<n;i++) {
+      const id = CRATE_LOOT[Math.floor(Math.random()*CRATE_LOOT.length)];
+      spawnGroundItem(id, nearCrate.mesh.position.x, nearCrate.mesh.position.z);
+    }
+  }
+}
+
+// Touche E
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyE' && gameState === 'playing') interact();
+});
+btnPickup.addEventListener('click', interact);
+btnPickup.addEventListener('touchend', e => { e.preventDefault(); interact(); }, { passive: false });
+
+// ═══════════════════════════════════════════════
+//  DRAG & DROP inventaire
+// ═══════════════════════════════════════════════
+let dragSrc = null; // { type:'hotbar'|'bp', idx }
+
+function getDragItem(src) {
+  if (!src) return null;
+  return src.type === 'hotbar' ? invHotbar[src.idx] : invBp[src.idx];
+}
+function setDragItem(src, item) {
+  if (src.type === 'hotbar') invHotbar[src.idx] = item;
+  else invBp[src.idx] = item;
+}
+
+function setupDragSlot(el, type, idx) {
+  el.setAttribute('draggable', 'true');
+  el.addEventListener('dragstart', e => {
+    const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
+    if (!item) { e.preventDefault(); return; }
+    dragSrc = { type, idx };
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+    // Montrer drop zone
+    dropZone.style.display = 'flex';
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    dropZone.classList.remove('drag-over');
+    dropZone.style.display = gameState === 'backpack' ? 'flex' : 'none';
+  });
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation();
+    el.classList.remove('drag-over');
+    if (!dragSrc || (dragSrc.type === type && dragSrc.idx === idx)) { dragSrc = null; return; }
+    const dst = { type, idx };
+    const a = getDragItem(dragSrc), b = getDragItem(dst);
+    setDragItem(dragSrc, b); setDragItem(dst, a);
+    dragSrc = null; renderAllSlots(); updateUseButton();
+  });
+
+  // Empêcher le clic sur hotbar de fermer le backpack
+  if (type === 'hotbar') {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      selectHotbar(idx);
+      updateUseButton();
+    });
+  }
+
+  // Mobile touch swap
+  el.addEventListener('touchstart', e => {
+    e.stopPropagation();
+    const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
+    if (dragSrc) {
+      const dst = { type, idx };
+      if (!(dragSrc.type === type && dragSrc.idx === idx)) {
+        const a = getDragItem(dragSrc), b = getDragItem(dst);
+        setDragItem(dragSrc, b); setDragItem(dst, a);
+        renderAllSlots(); updateUseButton();
+      }
+      document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
+      dragSrc = null;
+      dropZone.style.display = 'none';
+    } else if (item) {
+      dragSrc = { type, idx };
+      el.classList.add('dragging');
+      dropZone.style.display = 'flex'; // montrer zone de drop mobile
+    }
+  }, { passive: true });
+}
+
+// Drop zone — jeter l'item (desktop drag + mobile tap)
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (!dragSrc) return;
+  setDragItem(dragSrc, null);
+  dragSrc = null; renderAllSlots(); updateUseButton();
+  dropZone.style.display = 'none';
+});
+// Mobile: tap sur drop zone pour jeter
+dropZone.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!dragSrc) return;
+  setDragItem(dragSrc, null);
+  dragSrc = null; renderAllSlots(); updateUseButton();
+  dropZone.style.display = 'none';
+  document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
+}, { passive: false });
+
+hotbarSlots.forEach((el, i) => setupDragSlot(el, 'hotbar', i));
+bpSlots.forEach((el, i) => setupDragSlot(el, 'bp', i));
+
+// ── Flashlight — lumière 3D portée ──
+const flashlightLight = new THREE.PointLight(0xfff8e0, 0, 8);
+scene.add(flashlightLight);
+
+function updateFlashlight(dt) {
+  const item = invHotbar[hotbarSelected];
+  if (item && item.id === 'flashlight' && item.battery > 0) {
+    flashlightLight.intensity = 1.8;
+    flashlightLight.position.copy(camera.position);
+    item.battery = Math.max(0, item.battery - dt * (100/300)); // ~5 min
+    if (item.battery <= 0) { invHotbar[hotbarSelected] = null; }
+    renderAllSlots();
+  } else {
+    flashlightLight.intensity = 0;
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  MONSTRE — bonhomme bâton + BFS pathfinding
+// ═══════════════════════════════════════════════
+
+// ── Géométrie bonhomme bâton — tubes épais ──
+function makeStickFigure() {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0x080808 });
+
+  function addCylinder(ax,ay,az, bx,by,bz, r) {
+    const dx=bx-ax, dy=by-ay, dz=bz-az;
+    const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    const geo = new THREE.CylinderGeometry(r, r, len, 7);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((ax+bx)/2,(ay+by)/2,(az+bz)/2);
+    // Orienter le cylindre vers la direction
+    const up = new THREE.Vector3(0,1,0);
+    const dir = new THREE.Vector3(dx,dy,dz).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
+    mesh.quaternion.copy(q);
+    group.add(mesh);
+    return mesh;
+  }
+
+  function addSphere(x,y,z,r) {
+    const geo = new THREE.SphereGeometry(r, 8, 6);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x,y,z);
+    group.add(mesh);
+    return mesh;
+  }
+
+  const R = 0.06; // rayon des tubes
+
+  // Tête
+  addSphere(0, 1.75, 0, 0.20);
+  // Cou → corps
+  addCylinder(0,1.55,0, 0,1.0,0, R*1.2);
+  // Épaules
+  addCylinder(-0.35,1.42,0, 0.35,1.42,0, R);
+  // Bras gauche haut
+  addCylinder(-0.35,1.42,0, -0.5,1.05,0, R);
+  // Avant-bras gauche
+  addCylinder(-0.5,1.05,0, -0.38,0.68,0, R);
+  // Bras droit haut
+  addCylinder(0.35,1.42,0, 0.5,1.05,0, R);
+  // Avant-bras droit
+  addCylinder(0.5,1.05,0, 0.38,0.68,0, R);
+  // Hanches
+  addCylinder(-0.22,1.0,0, 0.22,1.0,0, R);
+  // Cuisse gauche
+  addCylinder(-0.22,1.0,0, -0.26,0.52,0, R*1.1);
+  // Tibia gauche
+  addCylinder(-0.26,0.52,0, -0.18,0.04,0, R);
+  // Cuisse droite
+  addCylinder(0.22,1.0,0, 0.26,0.52,0, R*1.1);
+  // Tibia droit
+  addCylinder(0.26,0.52,0, 0.18,0.04,0, R);
+
+  // Stocker les membres pour l'animation
+  group.userData.leftArm  = group.children[3];
+  group.userData.rightArm = group.children[5];
+  group.userData.leftLeg  = group.children[8];
+  group.userData.rightLeg = group.children[10];
+
+  return group;
+}
+
+const monster = makeStickFigure();
+// Spawn loin du joueur (coin opposé)
+const mSpawnR = ROWS - 4, mSpawnC = COLS - 4;
+monster.position.set(mSpawnC * CELL, 0, mSpawnR * CELL);
+scene.add(monster);
+
+// État monstre
+const MONSTER_SPEED   = 2.8;   // unités/s
+const MONSTER_REACH   = 0.9;   // distance pour toucher
+const PATH_RECALC     = 2.0;   // secondes entre recalculs BFS
+let monsterPath       = [];     // [{r,c},...] chemin courant
+let monsterPathTimer  = 0;
+let monsterR          = mSpawnR;
+let monsterC          = mSpawnC;
+let monsterDead       = false;
+let monsterRespawnTimer = 0;
+
+// Animation membres
+let monsterWalkTime = 0;
+
+// ── BFS sur grille ──
+function bfs(startR, startC, goalR, goalC) {
+  if (grid[startR][startC] !== 0 || grid[goalR][goalC] !== 0) return [];
+  const visited = [];
+  for (let i=0;i<ROWS;i++) visited.push(new Array(COLS).fill(false));
+  const prev = [];
+  for (let i=0;i<ROWS;i++) prev.push(new Array(COLS).fill(null));
+
+  const queue = [[startR, startC]];
+  visited[startR][startC] = true;
+
+  const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+  while (queue.length > 0) {
+    const [r, c] = queue.shift();
+    if (r === goalR && c === goalC) {
+      // Reconstruire chemin
+      const path = [];
+      let cr = r, cc = c;
+      while (cr !== startR || cc !== startC) {
+        path.unshift({r: cr, c: cc});
+        const p = prev[cr][cc];
+        cr = p[0]; cc = p[1];
+      }
+      return path;
+    }
+    for (const [dr,dc] of dirs) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!visited[nr][nc]&&grid[nr][nc]===0) {
+        visited[nr][nc] = true;
+        prev[nr][nc] = [r,c];
+        queue.push([nr,nc]);
+      }
+    }
+  }
+  return []; // pas de chemin
+}
+
+function updateMonster(dt) {
+  if (monsterDead) {
+    monsterRespawnTimer -= dt;
+    if (monsterRespawnTimer <= 0) {
+      // Respawn loin du joueur
+      monsterDead = false;
+      monsterR = mSpawnR; monsterC = mSpawnC;
+      monster.position.set(monsterC*CELL, 0, monsterR*CELL);
+      monster.visible = true;
+      monsterPath = [];
+    }
+    return;
+  }
+
+  // Coordonnées grille courantes du monstre
+  const mxWorld = monster.position.x;
+  const mzWorld = monster.position.z;
+
+  // Recalcul BFS périodique
+  monsterPathTimer -= dt;
+  if (monsterPathTimer <= 0) {
+    monsterPathTimer = PATH_RECALC;
+    const mr = Math.round(mzWorld / CELL);
+    const mc = Math.round(mxWorld / CELL);
+    const pr = Math.round(camera.position.z / CELL);
+    const pc = Math.round(camera.position.x / CELL);
+    // Clamp pour rester dans la grille
+    const smr = Math.max(1,Math.min(ROWS-2,mr));
+    const smc = Math.max(1,Math.min(COLS-2,mc));
+    const spr = Math.max(1,Math.min(ROWS-2,pr));
+    const spc = Math.max(1,Math.min(COLS-2,pc));
+    monsterPath = bfs(smr, smc, spr, spc);
+  }
+
+  // Suivre le chemin
+  if (monsterPath.length > 0) {
+    const next = monsterPath[0];
+    const tx = next.c * CELL;
+    const tz = next.r * CELL;
+    const dx = tx - mxWorld;
+    const dz = tz - mzWorld;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist < 0.15) {
+      monsterPath.shift(); // nœud atteint
+    } else {
+      const step = MONSTER_SPEED * dt;
+      monster.position.x += (dx/dist) * step;
+      monster.position.z += (dz/dist) * step;
+      // Orienter vers la direction
+      monster.rotation.y = Math.atan2(dx, dz);
+    }
+
+    // Animation marche — balancement bras/jambes
+    monsterWalkTime += dt * 4;
+    const swing = Math.sin(monsterWalkTime) * 0.3;
+    monster.rotation.z = swing * 0.08;
+  }
+
+  // Vérifier contact avec le joueur
+  const distToPlayer = Math.hypot(
+    monster.position.x - camera.position.x,
+    monster.position.z - camera.position.z
+  );
+  if (distToPlayer < MONSTER_REACH) {
+    hp = 0;
+    // Flash rouge
+    scene.fog.color.setRGB(0.4, 0, 0);
+    // Monstre disparaît et respawn dans 20s
+    monsterDead = true;
+    monsterRespawnTimer = 20;
+    monster.visible = false;
+  }
+}
+
+
+let last=0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-last)/1000, 0.05);
+  last=now;
+  const { moving, sprint } = updatePlayer(dt);
+  updateStats(dt, moving, sprint);
+  updateFlashlight(dt);
+  updateMonster(dt);
+  updateLights();
+
+  // ── Items au sol : bob flottant ──
+  const t = now * 0.001;
+  groundItems.forEach(gi => { gi.mesh.position.y = 0.175 + Math.sin(t*2 + gi.x)*0.06; gi.mesh.rotation.y += dt*1.2; });
+  crateData.forEach(cd => { if (!cd.open) cd.mesh.rotation.y += dt*0.3; });
+
+  // ── Détection proximité (caisses + items) ──
+  const px = camera.position.x, pz = camera.position.z;
+  const REACH = 2.2;
+
+  nearItem = null;
+  for (const gi of groundItems) {
+    if (Math.hypot(gi.x - px, gi.z - pz) < REACH) { nearItem = gi; break; }
+  }
+  nearCrate = null;
+  if (!nearItem) {
+    for (const cd of crateData) {
+      if (!cd.open && Math.hypot(cd.mesh.position.x - px, cd.mesh.position.z - pz) < REACH) { nearCrate = cd; break; }
+    }
+  }
+
+  const showPrompt = nearItem || nearCrate;
+  if (gameState === 'playing') {
+    if (nearItem) pickupPrompt.textContent = '[ E ] Ramasser ' + nearItem.item.name;
+    else if (nearCrate) pickupPrompt.textContent = '[ E ] Ouvrir la caisse';
+    pickupPrompt.style.display = showPrompt ? 'block' : 'none';
+    if (isMobile) btnPickup.style.display = showPrompt ? 'flex' : 'none';
+  } else {
+    pickupPrompt.style.display = 'none';
+    if (isMobile) btnPickup.style.display = 'none';
+  }
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
