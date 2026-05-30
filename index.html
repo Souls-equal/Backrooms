@@ -173,12 +173,54 @@
     }
     #btn-menu:hover { background: rgba(30,24,0,0.8); }
 
+    /* ── TIMER ── */
+    #timer {
+      position: fixed; top: 18px; left: 50%;
+      transform: translateX(-50%);
+      color: rgba(200,180,80,0.7);
+      font-family: monospace; font-size: 13px; letter-spacing: 3px;
+      pointer-events: none; z-index: 6; display: none;
+    }
+
+    /* ── GAME OVER ── */
+    #gameover {
+      position: fixed; inset: 0;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.92);
+      z-index: 30; gap: 18px;
+    }
+    #gameover h2 {
+      color: #8b1a1a; font-size: 48px; letter-spacing: 10px;
+      font-family: monospace; text-transform: uppercase;
+      text-shadow: 0 0 40px #8b1a1a;
+    }
+    #gameover .go-time {
+      color: #b8a030; font-size: 14px; letter-spacing: 4px;
+      font-family: monospace;
+    }
+    #gameover .go-cause {
+      color: #666; font-size: 11px; letter-spacing: 2px;
+      font-family: monospace;
+    }
+    #gameover button {
+      margin-top: 12px;
+      background: none; border: 1px solid rgba(180,160,48,0.5);
+      color: #b8a030; padding: 10px 28px; border-radius: 6px;
+      font-family: monospace; font-size: 11px; letter-spacing: 3px;
+      cursor: pointer; transition: background 0.15s;
+    }
+    #gameover button:hover { background: rgba(180,160,48,0.15); }
+
     /* ── HOTBAR (2 cases en bas au centre) ── */
     #hotbar {
       position: fixed; bottom: 24px; left: 50%;
       transform: translateX(-50%);
       display: none; gap: 6px;
       pointer-events: all; z-index: 6;
+    }
+    #hotbar.bp-open {
+      z-index: 25; /* Au-dessus du backpack overlay quand ouvert */
     }
     .hotbar-slot {
       width: 58px; height: 58px;
@@ -354,10 +396,21 @@
   <h1>Backrooms</h1>
   <div class="sub">LEVEL 0</div>
   <div class="hint">CLIC POUR ENTRER &nbsp;·&nbsp; ZQSD — marcher &nbsp;·&nbsp; SHIFT — courir &nbsp;·&nbsp; ESC — sortir</div>
+  <button id="btn-resume" style="display:none;margin-top:8px;background:none;border:1px solid rgba(180,160,48,0.5);color:#b8a030;padding:8px 24px;border-radius:6px;font-family:monospace;font-size:11px;letter-spacing:3px;cursor:pointer;">REPRENDRE</button>
 </div>
 <div id="hud">LEVEL 0 &nbsp;·&nbsp; NE PAS REGARDER DERRIÈRE VOUS</div>
+<div id="timer">00:00</div>
 <div id="crosshair"></div>
 <div id="btn-menu" title="Menu">&#9776;</div>
+
+<!-- Game Over -->
+<div id="gameover">
+  <h2>YOU DIED</h2>
+  <div class="go-time" id="go-time">Survécu : 00:00</div>
+  <div class="go-cause" id="go-cause"></div>
+  <button id="go-retry">RÉESSAYER</button>
+  <button id="go-menu">MENU</button>
+</div>
 
 <!-- Barres top-left -->
 <div id="bars-topleft">
@@ -1051,6 +1104,7 @@ function showMenu() {
   hotbarEl.style.display = 'none';
   btnBackpack.style.display = 'none';
   btnUse.style.display   = 'none';
+  timerEl.style.display  = 'none';
   dropZone.style.display = 'none';
   closeBackpackUI();
   btnMenu.style.display  = 'none';
@@ -1061,6 +1115,7 @@ function hideMenu() {
   barsUI.style.display   = 'flex';
   staminaWrap.style.display = 'block';
   hotbarEl.style.display = 'flex';
+  timerEl.style.display  = 'block';
   btnMenu.style.display  = 'flex';
   btnBackpack.style.display = 'flex';
   if (isMobile) { btnUse.style.display = 'flex'; updateUseButton(); }
@@ -1074,29 +1129,46 @@ btnMenu.addEventListener('click', () => {
 // État du jeu : 'menu' | 'playing' | 'backpack'
 let gameState = 'menu';
 
+const btnResume = document.getElementById('btn-resume');
+btnResume.addEventListener('click', e => {
+  e.stopPropagation(); // empêche le clic de remonter à overlay
+  enterGame();
+});
+
 function enterGame() {
   gameState = 'playing';
+  paused = false;
   hideMenu();
-  if (!isMobile) renderer.domElement.requestPointerLock();
+  btnResume.style.display = 'none';
+  if (!isMobile && !document.pointerLockElement) {
+    renderer.domElement.requestPointerLock();
+  }
 }
 
 function goToMenu() {
   gameState = 'menu';
+  paused = true;
   if (document.pointerLockElement) document.exitPointerLock();
   showMenu();
+  // Montrer "Reprendre" seulement si une partie est en cours
+  if (survivalTime > 0 && !gameOverShown) {
+    btnResume.style.display = 'inline-block';
+  }
 }
 
 function openBackpackUI() {
   gameState = 'backpack';
   backpackOverlay.style.display = 'flex';
   dropZone.style.display = 'flex';
+  hotbarEl.classList.add('bp-open');
   if (document.pointerLockElement) document.exitPointerLock();
 }
 
 function closeBackpackUI() {
   gameState = 'playing';
   backpackOverlay.style.display = 'none';
-  dropZone.style.display = 'none';
+  hotbarEl.classList.remove('bp-open');
+  if (dragSrc) dropItemToGround(dragSrc);
   dragSrc = null;
   document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
   if (!isMobile) renderer.domElement.requestPointerLock();
@@ -1108,8 +1180,7 @@ document.addEventListener('keydown', e => {
     if (gameState === 'playing') {
       goToMenu();
     } else if (gameState === 'menu') {
-      // Re-entrer en jeu depuis le menu
-      if (overlay.style.display !== 'none') enterGame();
+      if (survivalTime > 0 && !gameOverShown) enterGame();
     } else if (gameState === 'backpack') {
       closeBackpackUI();
     }
@@ -1132,6 +1203,7 @@ document.addEventListener('pointerlockchange', () => {
 if (isMobile) {
   overlay.querySelector('.hint').textContent = 'APPUIE POUR ENTRER  ·  Joystick gauche — déplacer  ·  Bouton droit — courir';
   overlay.addEventListener('click', () => {
+    if (gameState === 'playing') return;
     initAudio();
     enterGame();
     mobileUI.style.display = 'block';
@@ -1139,6 +1211,7 @@ if (isMobile) {
   });
 } else {
   overlay.addEventListener('click', () => {
+    if (gameState === 'playing') return;
     initAudio();
     enterGame();
   });
@@ -1147,6 +1220,12 @@ if (isMobile) {
     yaw   -= e.movementX * 0.0022;
     pitch -= e.movementY * 0.0022;
     pitch  = Math.max(-1.3, Math.min(1.3, pitch));
+  });
+  // Re-lock si le lock est perdu alors qu'on est en jeu
+  document.addEventListener('pointerlockchange', () => {
+    if (!document.pointerLockElement && gameState === 'playing') {
+      goToMenu();
+    }
   });
 }
 
@@ -1297,7 +1376,10 @@ function updatePlayer(dt) {
   const moving = len > 0.01;
   // Sprint seulement si stamina > 0
   const actualSprint = sprint && moving && stamina > 0;
-  const speed = actualSprint ? 7.5 : 4;
+  // En dessous de 40% stamina : ralentissement progressif jusqu'à 50% de la vitesse de base
+  const staminaFactor = stamina < 40 ? 0.5 + (stamina / 40) * 0.5 : 1.0;
+  const baseSpeed = actualSprint ? 7.5 : 4;
+  const speed = baseSpeed * staminaFactor;
 
   if (moving) {
     const vx=(dx/len)*speed*dt;
@@ -1389,7 +1471,9 @@ window.addEventListener('wheel', e => {
 let hp      = 100;
 let sanity  = 100;
 let stamina = 100;
-let hunger  = 100; // 0–100
+let hunger  = 100;
+let survivalTime = 0;
+let gameOverShown = false;
 
 const barHp      = document.getElementById('bar-hp-fill');
 const barMental  = document.getElementById('bar-mental-fill');
@@ -1397,6 +1481,81 @@ const barHunger  = document.getElementById('bar-hunger-fill');
 const staminaWrap= document.getElementById('stamina-wrap');
 const staminaFill= document.getElementById('stamina-fill');
 const barsUI     = document.getElementById('bars-topleft');
+const timerEl    = document.getElementById('timer');
+const gameoverEl = document.getElementById('gameover');
+const goTimeEl   = document.getElementById('go-time');
+const goCauseEl  = document.getElementById('go-cause');
+
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+function triggerGameOver(cause) {
+  if (gameOverShown) return;
+  gameOverShown = true;
+  gameState = 'menu'; // stoppe le jeu
+  if (document.pointerLockElement) document.exitPointerLock();
+  goTimeEl.textContent = 'Survécu : ' + formatTime(survivalTime);
+  goCauseEl.textContent = cause;
+  gameoverEl.style.display = 'flex';
+}
+
+// ── PAUSE ──
+let paused = false;
+
+function pauseGame() {
+  paused = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function resumeGame() {
+  paused = false;
+  if (!isMobile) renderer.domElement.requestPointerLock();
+}
+
+function resetGame() {
+  hp = 100; sanity = 100; stamina = 100; hunger = 100;
+  survivalTime = 0; gameOverShown = false;
+  scene.fog.color.setHex(0x1a1600);
+
+  // Reset monstre
+  monsterDead = false; monsterRespawnTimer = 0;
+  monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
+  monster.visible = true; monsterPath = []; monsterPathTimer = 0;
+
+  // Reset position joueur
+  camera.position.set(SC*CELL, 1.7, SR*CELL);
+  yaw = 0; pitch = 0;
+
+  // Vider inventaire
+  for (let i=0;i<invHotbar.length;i++) invHotbar[i]=null;
+  for (let i=0;i<invBp.length;i++) invBp[i]=null;
+
+  // Supprimer items au sol
+  for (const gi of groundItems) scene.remove(gi.mesh);
+  groundItems.length = 0;
+
+  // Remettre les caisses à neuf
+  for (const cd of crateData) {
+    cd.open = false;
+    cd.mesh.material.color.setHex(0xffffff); // reset teinture
+    cd.mesh.visible = true;
+  }
+
+  renderAllSlots();
+  updateUseButton();
+  btnResume.style.display = 'none';
+}
+
+document.getElementById('go-retry').addEventListener('click', () => {
+  gameoverEl.style.display = 'none';
+  resetGame(); enterGame();
+});
+document.getElementById('go-menu').addEventListener('click', () => {
+  gameoverEl.style.display = 'none';
+  resetGame(); showMenu();
+});
 
 // Stamina : opacité & visibilité
 let staminaVisible  = false;
@@ -1484,7 +1643,7 @@ function updateStats(dt, moving, sprinting) {
 
   // ── SANITY ──
   // Descend lentement en permanence (vide en ~8 minutes)
-  sanity = Math.max(0, sanity - dt * 0.21);
+  sanity = Math.max(0, sanity - dt * 0.3675); // ×1.75
 
   // Sons de folie — plus fréquents quand sanity basse
   if (audioCtx && sanity < 80) {
@@ -1504,7 +1663,7 @@ function updateStats(dt, moving, sprinting) {
 
   // ── FAIM ──
   // Sprint: -0.28/s (~6 min)  |  Marche: -0.16/s (~10 min)  |  Arrêt: -0.05/s (~33 min)
-  const hungerRate = sprinting ? 0.28 : moving ? 0.16 : 0.05;
+  const hungerRate = sprinting ? 0.56 : moving ? 0.32 : 0.10; // ×2
   hunger = Math.max(0, hunger - dt * hungerRate);
 
   // Faim critique (<11) → perd de la vie (même principe que mental)
@@ -1519,12 +1678,25 @@ function updateStats(dt, moving, sprinting) {
   barHp.style.width     = hp.toFixed(1) + '%';
   barMental.style.width = sanity.toFixed(1) + '%';
 
-  // Teinte rouge sur l'écran si hp bas (vignette via fog)
+  // Timer de survie
+  survivalTime += dt;
+  timerEl.textContent = formatTime(survivalTime);
+
+  // Teinte rouge sur l'écran si hp bas
   if (hp < 30) {
     const t = 1 - hp/30;
     scene.fog.color.setRGB(0.15 + t*0.2, 0.08, 0.0);
   } else {
     scene.fog.color.setHex(0x1a1600);
+  }
+
+  // Game over
+  if (hp <= 0 && !gameOverShown) {
+    let cause = 'Cause inconnue';
+    if (sanity <= 0)      cause = 'Tu as sombré dans la folie.';
+    else if (hunger <= 0) cause = 'Tu es mort de faim.';
+    else                  cause = 'Tu as été rattrapé par les ténèbres.';
+    triggerGameOver(cause);
   }
 }
 
@@ -1757,6 +1929,7 @@ function setupDragSlot(el, type, idx) {
   el.addEventListener('dragstart', e => {
     const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
     if (!item) { e.preventDefault(); return; }
+    if (gameState === 'backpack') e.stopPropagation();
     dragSrc = { type, idx };
     el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
@@ -1771,6 +1944,7 @@ function setupDragSlot(el, type, idx) {
 
   el.addEventListener('dragover', e => {
     e.preventDefault();
+    if (gameState === 'backpack') e.stopPropagation();
     el.classList.add('drag-over');
   });
 
@@ -1778,6 +1952,7 @@ function setupDragSlot(el, type, idx) {
 
   el.addEventListener('drop', e => {
     e.preventDefault();
+    if (gameState === 'backpack') e.stopPropagation();
     el.classList.remove('drag-over');
     if (!dragSrc || (dragSrc.type === type && dragSrc.idx === idx)) {
       dragSrc = null; return;
@@ -1791,9 +1966,10 @@ function setupDragSlot(el, type, idx) {
     updateUseButton();
   });
 
-  // Click sur hotbar en jeu = sélectionner
+  // Click sur hotbar
   if (type === 'hotbar') {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', e => {
+      if (gameState === 'backpack') e.stopPropagation(); // empêche fermeture overlay
       selectHotbar(idx);
       updateUseButton();
     });
@@ -1801,6 +1977,7 @@ function setupDragSlot(el, type, idx) {
 
   // Mobile : tap pour sélectionner source, re-tap pour échanger
   el.addEventListener('touchstart', e => {
+    if (gameState === 'backpack') e.stopPropagation();
     const item = type === 'hotbar' ? invHotbar[idx] : invBp[idx];
     if (dragSrc) {
       const dst = { type, idx };
@@ -1823,23 +2000,37 @@ function setupDragSlot(el, type, idx) {
 }
 
 // Drop zone — jeter l'item (desktop drag + mobile tap)
+function dropItemToGround(src) {
+  if (!src) return;
+  const item = getDragItem(src);
+  if (!item) return;
+  // Spawner au sol devant le joueur
+  const dropX = camera.position.x - Math.sin(yaw) * 1.2;
+  const dropZ = camera.position.z - Math.cos(yaw) * 1.2;
+  spawnGroundItem(item.id, dropX, dropZ);
+  // Si flashlight, copier la batterie restante sur l'item au sol
+  if (item.id === 'flashlight') {
+    groundItems[groundItems.length - 1].item.battery = item.battery;
+  }
+  setDragItem(src, null);
+  dragSrc = null;
+  renderAllSlots();
+  updateUseButton();
+  dropZone.classList.remove('drag-over');
+  document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
+}
+
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
-  e.preventDefault(); dropZone.classList.remove('drag-over');
-  if (!dragSrc) return;
-  setDragItem(dragSrc, null);
-  dragSrc = null; renderAllSlots(); updateUseButton();
-  dropZone.style.display = 'none';
+  e.preventDefault();
+  dropItemToGround(dragSrc);
 });
-// Mobile: tap sur drop zone pour jeter
+// Mobile: tap drop zone quand un slot est sélectionné
+dropZone.addEventListener('click', () => dropItemToGround(dragSrc));
 dropZone.addEventListener('touchend', e => {
   e.preventDefault();
-  if (!dragSrc) return;
-  setDragItem(dragSrc, null);
-  dragSrc = null; renderAllSlots(); updateUseButton();
-  dropZone.style.display = 'none';
-  document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
+  dropItemToGround(dragSrc);
 }, { passive: false });
 
 hotbarSlots.forEach((el, i) => setupDragSlot(el, 'hotbar', i));
@@ -1854,7 +2045,7 @@ function updateFlashlight(dt) {
   if (item && item.id === 'flashlight' && item.battery > 0) {
     flashlightLight.intensity = 1.8;
     flashlightLight.position.copy(camera.position);
-    item.battery = Math.max(0, item.battery - dt * (100/300)); // ~5 min
+    item.battery = Math.max(0, item.battery - dt * (100/35)); // ~35 sec
     if (item.battery <= 0) { invHotbar[hotbarSelected] = null; }
     renderAllSlots();
   } else {
@@ -1936,126 +2127,177 @@ const mSpawnR = ROWS - 4, mSpawnC = COLS - 4;
 monster.position.set(mSpawnC * CELL, 0, mSpawnR * CELL);
 scene.add(monster);
 
-// État monstre
-const MONSTER_SPEED   = 2.8;   // unités/s
-const MONSTER_REACH   = 0.9;   // distance pour toucher
-const PATH_RECALC     = 2.0;   // secondes entre recalculs BFS
-let monsterPath       = [];     // [{r,c},...] chemin courant
-let monsterPathTimer  = 0;
-let monsterR          = mSpawnR;
-let monsterC          = mSpawnC;
-let monsterDead       = false;
-let monsterRespawnTimer = 0;
+// ── BFS sur grille fine (3×3 sous-cellules par cellule) ──
+// Chaque cellule de grid[][] est divisée en SUB×SUB nœuds
+const SUB      = 3;
+const SUBCELL  = CELL / SUB;           // ~1.33 unités
+const SROWS    = ROWS * SUB;
+const SCOLS    = COLS * SUB;
 
-// Animation membres
-let monsterWalkTime = 0;
+// Un nœud fin est libre si sa cellule parente ET ses voisins immédiats le sont
+// On utilise un rayon de sécurité : on vérifie que le centre du nœud est bien
+// à l'intérieur d'une cellule libre avec une marge
+function subFree(sr, sc) {
+  if (sr < 0 || sr >= SROWS || sc < 0 || sc >= SCOLS) return false;
+  // Cellule parente
+  const gr = Math.floor(sr / SUB);
+  const gc = Math.floor(sc / SUB);
+  if (grid[gr][gc] !== 0) return false;
+  // Vérifier aussi en coordonnées monde avec marge
+  // Position monde du nœud
+  const wx = sc * SUBCELL;
+  const wz = sr * SUBCELL;
+  const margin = SUBCELL * 0.45; // marge de sécurité
+  // Les 4 coins du nœud doivent être dans des cellules libres
+  for (const [ox, oz] of [[-margin,-margin],[-margin,margin],[margin,-margin],[margin,margin]]) {
+    const ncx = wx + ox;
+    const ncz = wz + oz;
+    const ngc = Math.floor(ncx / CELL + 0.5);
+    const ngr = Math.floor(ncz / CELL + 0.5);
+    if (ngr < 0 || ngr >= ROWS || ngc < 0 || ngc >= COLS) return false;
+    if (grid[ngr][ngc] !== 0) return false;
+  }
+  return true;
+}
 
-// ── BFS sur grille ──
-function bfs(startR, startC, goalR, goalC) {
-  if (grid[startR][startC] !== 0 || grid[goalR][goalC] !== 0) return [];
-  const visited = [];
-  for (let i=0;i<ROWS;i++) visited.push(new Array(COLS).fill(false));
-  const prev = [];
-  for (let i=0;i<ROWS;i++) prev.push(new Array(COLS).fill(null));
-
-  const queue = [[startR, startC]];
-  visited[startR][startC] = true;
-
-  const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
-  while (queue.length > 0) {
-    const [r, c] = queue.shift();
-    if (r === goalR && c === goalC) {
-      // Reconstruire chemin
-      const path = [];
-      let cr = r, cc = c;
-      while (cr !== startR || cc !== startC) {
-        path.unshift({r: cr, c: cc});
-        const p = prev[cr][cc];
-        cr = p[0]; cc = p[1];
-      }
-      return path;
-    }
-    for (const [dr,dc] of dirs) {
-      const nr=r+dr, nc=c+dc;
-      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!visited[nr][nc]&&grid[nr][nc]===0) {
-        visited[nr][nc] = true;
-        prev[nr][nc] = [r,c];
-        queue.push([nr,nc]);
-      }
+// Convertir position monde → nœud fin le plus proche qui soit libre
+function worldToSub(wx, wz) {
+  const sr = Math.round(wz / SUBCELL);
+  const sc = Math.round(wx / SUBCELL);
+  // Si le nœud exact est mur, chercher le plus proche libre dans un petit rayon
+  if (subFree(sr, sc)) return { sr, sc };
+  for (let d = 1; d <= SUB; d++) {
+    for (const [dr, dc] of [[0,0],[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+      const nr = sr + dr*d, nc = sc + dc*d;
+      if (subFree(nr, nc)) return { sr: nr, sc: nc };
     }
   }
-  return []; // pas de chemin
+  return { sr, sc }; // fallback
 }
+// Convertir nœud fin → position monde (centre)
+function subToWorld(sr, sc) {
+  return { x: sc * SUBCELL, z: sr * SUBCELL };
+}
+
+function bfsSub(startSr, startSc, goalSr, goalSc) {
+  // Clamp
+  startSr = Math.max(0, Math.min(SROWS-1, startSr));
+  startSc = Math.max(0, Math.min(SCOLS-1, startSc));
+  goalSr  = Math.max(0, Math.min(SROWS-1, goalSr));
+  goalSc  = Math.max(0, Math.min(SCOLS-1, goalSc));
+  if (!subFree(startSr, startSc) || !subFree(goalSr, goalSc)) return [];
+
+  // Tableau plat pour perf
+  const size = SROWS * SCOLS;
+  const visited = new Uint8Array(size);
+  const prevIdx = new Int32Array(size).fill(-1);
+
+  const startIdx = startSr * SCOLS + startSc;
+  const goalIdx  = goalSr  * SCOLS + goalSc;
+  visited[startIdx] = 1;
+
+  const queue = [startIdx];
+  const dirs4 = [-SCOLS, SCOLS, -1, 1]; // haut, bas, gauche, droite
+
+  let qi = 0;
+  while (qi < queue.length) {
+    const idx = queue[qi++];
+    if (idx === goalIdx) {
+      // Reconstruire chemin
+      const path = [];
+      let cur = idx;
+      while (cur !== startIdx) {
+        const sr = Math.floor(cur / SCOLS);
+        const sc = cur % SCOLS;
+        path.unshift(subToWorld(sr, sc));
+        cur = prevIdx[cur];
+      }
+      return path; // [{x,z}, ...]
+    }
+    const sr = Math.floor(idx / SCOLS);
+    const sc = idx % SCOLS;
+    for (const d of dirs4) {
+      const nIdx = idx + d;
+      const nsr = Math.floor(nIdx / SCOLS);
+      const nsc = nIdx % SCOLS;
+      if (nIdx < 0 || nIdx >= size) continue;
+      if (d === -1 && nsc !== sc - 1) continue; // wrap gauche
+      if (d ===  1 && nsc !== sc + 1) continue; // wrap droite
+      if (visited[nIdx]) continue;
+      if (!subFree(nsr, nsc)) continue;
+      visited[nIdx] = 1;
+      prevIdx[nIdx] = idx;
+      queue.push(nIdx);
+    }
+  }
+  return [];
+}
+
+// État monstre
+const MONSTER_SPEED   = 2.8;
+const MONSTER_REACH   = 0.9;
+const PATH_RECALC     = 1.2; // recalcul plus fréquent pour meilleure réactivité
+let monsterPath       = []; // [{x,z},...] positions monde
+let monsterPathTimer  = 0;
+let monsterDead       = false;
+let monsterRespawnTimer = 0;
+let monsterWalkTime   = 0;
 
 function updateMonster(dt) {
   if (monsterDead) {
     monsterRespawnTimer -= dt;
     if (monsterRespawnTimer <= 0) {
-      // Respawn loin du joueur
       monsterDead = false;
-      monsterR = mSpawnR; monsterC = mSpawnC;
-      monster.position.set(monsterC*CELL, 0, monsterR*CELL);
+      monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
       monster.visible = true;
       monsterPath = [];
     }
     return;
   }
 
-  // Coordonnées grille courantes du monstre
-  const mxWorld = monster.position.x;
-  const mzWorld = monster.position.z;
+  const mx = monster.position.x;
+  const mz = monster.position.z;
+  const px = camera.position.x;
+  const pz = camera.position.z;
 
   // Recalcul BFS périodique
   monsterPathTimer -= dt;
   if (monsterPathTimer <= 0) {
     monsterPathTimer = PATH_RECALC;
-    const mr = Math.round(mzWorld / CELL);
-    const mc = Math.round(mxWorld / CELL);
-    const pr = Math.round(camera.position.z / CELL);
-    const pc = Math.round(camera.position.x / CELL);
-    // Clamp pour rester dans la grille
-    const smr = Math.max(1,Math.min(ROWS-2,mr));
-    const smc = Math.max(1,Math.min(COLS-2,mc));
-    const spr = Math.max(1,Math.min(ROWS-2,pr));
-    const spc = Math.max(1,Math.min(COLS-2,pc));
-    monsterPath = bfs(smr, smc, spr, spc);
+    const ms = worldToSub(mx, mz);
+    const ps = worldToSub(px, pz);
+    monsterPath = bfsSub(ms.sr, ms.sc, ps.sr, ps.sc);
   }
 
-  // Suivre le chemin
+  // Suivre le chemin fin
   if (monsterPath.length > 0) {
     const next = monsterPath[0];
-    const tx = next.c * CELL;
-    const tz = next.r * CELL;
-    const dx = tx - mxWorld;
-    const dz = tz - mzWorld;
+    const dx = next.x - mx;
+    const dz = next.z - mz;
     const dist = Math.hypot(dx, dz);
 
-    if (dist < 0.15) {
-      monsterPath.shift(); // nœud atteint
+    if (dist < SUBCELL * 0.4) {
+      monsterPath.shift();
     } else {
       const step = MONSTER_SPEED * dt;
-      monster.position.x += (dx/dist) * step;
-      monster.position.z += (dz/dist) * step;
-      // Orienter vers la direction
-      monster.rotation.y = Math.atan2(dx, dz);
+      monster.position.x += (dx / dist) * step;
+      monster.position.z += (dz / dist) * step;
     }
 
-    // Animation marche — balancement bras/jambes
-    monsterWalkTime += dt * 4;
-    const swing = Math.sin(monsterWalkTime) * 0.3;
-    monster.rotation.z = swing * 0.08;
+    monsterWalkTime += dt * 5;
+    monster.rotation.z = Math.sin(monsterWalkTime) * 0.07;
   }
 
-  // Vérifier contact avec le joueur
-  const distToPlayer = Math.hypot(
-    monster.position.x - camera.position.x,
-    monster.position.z - camera.position.z
-  );
+  // Toujours regarder le joueur (rotation Y)
+  const toDx = px - mx;
+  const toDz = pz - mz;
+  monster.rotation.y = Math.atan2(toDx, toDz);
+
+  // Contact joueur
+  const distToPlayer = Math.hypot(mx - px, mz - pz);
   if (distToPlayer < MONSTER_REACH) {
     hp = 0;
-    // Flash rouge
     scene.fog.color.setRGB(0.4, 0, 0);
-    // Monstre disparaît et respawn dans 20s
     monsterDead = true;
     monsterRespawnTimer = 20;
     monster.visible = false;
@@ -2066,8 +2308,12 @@ function updateMonster(dt) {
 let last=0;
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt=Math.min((now-last)/1000, 0.05);
-  last=now;
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  if (paused || gameState === 'menu' || gameOverShown) {
+    renderer.render(scene, camera); // continuer à render mais pas update
+    return;
+  }
   const { moving, sprint } = updatePlayer(dt);
   updateStats(dt, moving, sprint);
   updateFlashlight(dt);
