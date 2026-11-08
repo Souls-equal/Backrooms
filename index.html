@@ -1907,32 +1907,45 @@ crateCtx.beginPath(); crateCtx.moveTo(43,0); crateCtx.lineTo(43,64); crateCtx.st
 for (let i=0;i<200;i++){ const x=Math.random()*64, y=Math.random()*64; crateCtx.fillStyle='rgba(0,0,0,0.08)'; crateCtx.fillRect(x,y,1,2); }
 const crateTex = new THREE.CanvasTexture(crateCanvas);
 
+const CRATE_S = 1.0;   // côté de la caisse (était 0.7)
+const CRATE_H = 0.7;   // hauteur des parois
+const CRATE_T = 0.05;  // épaisseur des planches
+
+// Caisse creuse : fond + 4 parois + couvercle articulé. L'intérieur est visible quand on ouvre.
 function buildCrate() {
   const g = new THREE.Group();
+  const S = CRATE_S, H = CRATE_H, T = CRATE_T, h = S / 2;
   const metal = lam(0x3a3a3a);
   const brass = lam(0xa88a3a);
   const bodyMat = new THREE.MeshLambertMaterial({ map: crateTex });
   const lidMat  = new THREE.MeshLambertMaterial({ map: crateTex });
 
-  const body = addPart(g, boxG(0.7, 0.55, 0.7), bodyMat, 0, -0.075, 0);
+  // Fond (la base est à y = 0)
+  addPart(g, boxG(S, T, S), bodyMat, 0, T / 2, 0);
+  // 4 parois, sans dessus
+  addPart(g, boxG(S, H, T), bodyMat, 0, H / 2,  h - T / 2);
+  addPart(g, boxG(S, H, T), bodyMat, 0, H / 2, -h + T / 2);
+  addPart(g, boxG(T, H, S - 2 * T), bodyMat,  h - T / 2, H / 2, 0);
+  addPart(g, boxG(T, H, S - 2 * T), bodyMat, -h + T / 2, H / 2, 0);
+
   // Montants métal dans les coins
   for (const sx of [-1, 1]) for (const sz of [-1, 1])
-    addPart(g, boxG(0.06, 0.56, 0.06), metal, sx*0.33, -0.075, sz*0.33);
-  // Sangles horizontales (devant/derrière et côtés)
-  for (const y of [-0.22, 0.08]) {
-    for (const sz of [-1, 1]) addPart(g, boxG(0.72, 0.035, 0.03), metal, 0, y, sz*0.355);
-    for (const sx of [-1, 1]) addPart(g, boxG(0.03, 0.035, 0.72), metal, sx*0.355, y, 0);
+    addPart(g, boxG(0.07, H + 0.02, 0.07), metal, sx * h, H / 2, sz * h);
+  // Sangles horizontales sur les 4 faces
+  for (const y of [0.18, 0.5]) {
+    for (const sz of [-1, 1]) addPart(g, boxG(S + 0.02, 0.04, 0.03), metal, 0, y, sz * (h + 0.01));
+    for (const sx of [-1, 1]) addPart(g, boxG(0.03, 0.04, S + 0.02), metal, sx * (h + 0.01), y, 0);
   }
-  // Cadenas / plaque laiton sur le devant
-  addPart(g, boxG(0.08, 0.08, 0.02), brass, 0, -0.075, 0.37);
+  // Plaque laiton sur le devant
+  addPart(g, boxG(0.14, 0.1, 0.02), brass, 0, 0.34, h + 0.02);
 
-  // Couvercle : pivot sur le bord arrière
+  // Couvercle : pivot sur le bord arrière du haut des parois
   const pivot = new THREE.Group();
-  pivot.position.set(0, 0.2, -0.35);
+  pivot.position.set(0, H, -h);
   g.add(pivot);
-  const lid = addPart(pivot, boxG(0.7, 0.15, 0.7), lidMat, 0, 0.075, 0.35);
-  addPart(pivot, boxG(0.7, 0.03, 0.03), metal, 0, 0.0, 0.04);      // charnière
-  addPart(pivot, boxG(0.7, 0.035, 0.03), metal, 0, 0.075, 0.69);   // sangle avant du couvercle
+  addPart(pivot, boxG(S, 0.06, S), lidMat, 0, 0.03, h);                 // planches du couvercle
+  addPart(pivot, boxG(S, 0.04, 0.03), metal, 0, -0.005, 0.02);          // charnière
+  addPart(pivot, boxG(0.2, 0.03, 0.04), metal, 0, 0.075, S * 0.7);      // poignée
 
   g.userData = { pivot, bodyMat, lidMat };
   return g;
@@ -1941,7 +1954,7 @@ function buildCrate() {
 function setCrateOpen(cd, open) {
   const u = cd.mesh.userData;
   u.pivot.rotation.x = open ? -1.9 : 0;
-  const tint = open ? 0x4a3018 : 0xffffff;
+  const tint = open ? 0x9a7a4a : 0xffffff;
   u.bodyMat.color.setHex(tint);
   u.lidMat.color.setHex(tint);
 }
@@ -1957,7 +1970,7 @@ for (let i = 0; i < CRATE_COUNT; i++) {
   while ((grid[r][c] !== 0 || (Math.abs(r-SR)<3 && Math.abs(c-SC)<3)) && tries < 200);
   if (grid[r][c] !== 0) continue;
   const mesh = buildCrate();
-  mesh.position.set(c*CELL, 0.35, r*CELL);
+  mesh.position.set(c*CELL, 0, r*CELL);
   mesh.rotation.y = Math.floor(Math.random()*4) * Math.PI / 2;
   scene.add(mesh);
   crateData.push({ mesh, r, c, open: false });
@@ -2035,14 +2048,24 @@ const ITEM_BUILDERS = {
 // Items au sol
 const groundItems = []; // { mesh, item, x, z }
 
-function spawnGroundItem(itemId, x, z) {
+// inside = true : l'objet est posé au fond de la caisse (pas de flottement)
+function spawnGroundItem(itemId, x, z, inside = false) {
   const item = makeItem(itemId);
   const build = ITEM_BUILDERS[itemId] || buildBattery;
   const mesh = build();
-  const ox = (Math.random()-0.5)*1.2, oz = (Math.random()-0.5)*1.2;
-  mesh.position.set(x+ox, 0.175, z+oz);
+  let px, pz, py;
+  if (inside) {
+    px = x + (Math.random() - 0.5) * 0.5;
+    pz = z + (Math.random() - 0.5) * 0.5;
+    py = CRATE_T + 0.2;
+  } else {
+    px = x + (Math.random() - 0.5) * 1.2;
+    pz = z + (Math.random() - 0.5) * 1.2;
+    py = 0.175;
+  }
+  mesh.position.set(px, py, pz);
   scene.add(mesh);
-  groundItems.push({ mesh, item, x: x+ox, z: z+oz });
+  groundItems.push({ mesh, item, x: px, z: pz, inCrate: inside, baseY: py });
 }
 
 // ── Prompt / bouton mobile ──
@@ -2068,7 +2091,7 @@ function interact() {
     const n = 1 + Math.floor(Math.random()*3);
     for (let i=0;i<n;i++) {
       const id = CRATE_LOOT[Math.floor(Math.random()*CRATE_LOOT.length)];
-      spawnGroundItem(id, nearCrate.mesh.position.x, nearCrate.mesh.position.z);
+      spawnGroundItem(id, nearCrate.mesh.position.x, nearCrate.mesh.position.z, true);
     }
   }
 }
@@ -2615,7 +2638,10 @@ function loop(now) {
 
   // ── Items au sol : bob flottant ──
   const t = now * 0.001;
-  groundItems.forEach(gi => { gi.mesh.position.y = 0.175 + Math.sin(t*2 + gi.x)*0.06; gi.mesh.rotation.y += dt*1.2; });
+  groundItems.forEach(gi => {
+    if (gi.inCrate) return;
+    gi.mesh.position.y = 0.175 + Math.sin(t*2 + gi.x)*0.06; gi.mesh.rotation.y += dt*1.2;
+  });
 
   // ── Détection proximité (caisses + items) ──
   const px = camera.position.x, pz = camera.position.z;
