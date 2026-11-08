@@ -400,6 +400,17 @@
       border: 1px solid rgba(180,160,48,0.4); border-radius: 6px;
       display: none; z-index: 6; pointer-events: none; opacity: 0.9;
     }
+    /* ── INFO-BULLE OBJET ── */
+    #item-tip {
+      position: fixed; z-index: 40; pointer-events: none;
+      display: none; max-width: 240px;
+      background: rgba(12,10,4,0.96);
+      border: 1px solid rgba(180,160,48,0.5); border-radius: 6px;
+      padding: 8px 10px; font-family: monospace;
+    }
+    #item-tip .tip-name { color: #d8b840; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+    #item-tip .tip-desc { color: #a8a090; font-size: 11px; line-height: 1.45; }
+    #item-tip .tip-extra { color: #c8a840; font-size: 10px; margin-top: 5px; letter-spacing: 1px; }
     /* ── FLASH DE DÉGÂTS ── */
     #hit-flash {
       position: fixed; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
@@ -486,6 +497,7 @@
 
 <canvas id="minimap" width="168" height="168"></canvas>
 <div id="hit-flash"></div>
+<div id="item-tip"></div>
 <div id="mobile-ui">
   <div id="joystick-zone">
     <div id="joystick-base"></div>
@@ -1194,6 +1206,7 @@ function openBackpackUI() {
 }
 
 function closeBackpackUI() {
+  hideItemTip();
   gameState = 'playing';
   backpackOverlay.style.display = 'none';
   hotbarEl.classList.remove('bp-open');
@@ -1747,27 +1760,33 @@ const ITEM_ICONS = {
 const ITEM_DEFS = {
   almond_water: {
     id: 'almond_water', name: 'Eau d\'amande', icon: ITEM_ICONS.almond_water,
+    desc: 'Eau d’amande. Apaise l’esprit : +35 mental.',
     use(inv) { sanity = Math.min(100, sanity + 35); return true; }
   },
   energy_bar: {
     id: 'energy_bar', name: 'Barre énergie', icon: ITEM_ICONS.energy_bar,
+    desc: 'Barre énergétique. Rend de l’endurance (+60) et un peu de nourriture (+17).',
     use(inv) { stamina = Math.min(100, stamina + 60); hunger = Math.min(100, hunger + 100/6); return true; }
   },
   backshroom: {
     id: 'backshroom', name: 'Backshroom', icon: ITEM_ICONS.backshroom,
+    desc: 'Champignon comestible. Rassasie : +29 faim.',
     use(inv) { hunger = Math.min(100, hunger + 200/7); return true; }
   },
   flashlight: {
     id: 'flashlight', name: 'Lampe torche', icon: ITEM_ICONS.flashlight,
+    desc: 'Lampe torche. Sélectionnée dans la hotbar, elle éclaire vers l’avant. Autonomie limitée, recharge avec une pile.',
     battery: 100, // 0–100
     use(inv) { return false; } // utilisée passivement
   },
   medkit: {
     id: 'medkit', name: 'Trousse de soin', icon: ITEM_ICONS.medkit,
+    desc: 'Trousse de soin. Restaure 45 points de vie.',
     use(inv) { hp = Math.min(100, hp + 45); return true; }
   },
   battery: {
     id: 'battery', name: 'Pile', icon: ITEM_ICONS.battery,
+    desc: 'Pile. Recharge complètement une lampe torche de l’inventaire.',
     use(inv) {
       const f = [...invHotbar, ...invBp].find(i => i && i.id === 'flashlight');
       if (!f) return false;
@@ -1783,6 +1802,7 @@ function makeItem(id) {
   return {
     id: def.id,
     name: def.name,
+    desc: def.desc,
     icon: def.icon,
     use: def.use,
     battery: def.battery !== undefined ? def.battery : undefined,
@@ -2235,16 +2255,65 @@ dropZone.addEventListener('touchend', e => {
 hotbarSlots.forEach((el, i) => setupDragSlot(el, 'hotbar', i));
 bpSlots.forEach((el, i) => setupDragSlot(el, 'bp', i));
 
+// ── Info-bulle au survol des emplacements ──
+const itemTipEl = document.getElementById('item-tip');
+
+function slotItem(el) {
+  return el.classList.contains('hotbar-slot') ? invHotbar[+el.dataset.slot] : invBp[+el.dataset.bp];
+}
+function fillItemTip(item) {
+  let extra = '';
+  if (item.id === 'flashlight') extra = 'Batterie : ' + Math.ceil(item.battery) + '%';
+  itemTipEl.innerHTML =
+    '<div class="tip-name"></div><div class="tip-desc"></div>' + (extra ? '<div class="tip-extra"></div>' : '');
+  itemTipEl.querySelector('.tip-name').textContent = item.name;
+  itemTipEl.querySelector('.tip-desc').textContent = item.desc || '';
+  if (extra) itemTipEl.querySelector('.tip-extra').textContent = extra;
+}
+function placeItemTip(e) {
+  const pad = 16, w = itemTipEl.offsetWidth, h = itemTipEl.offsetHeight;
+  const x = Math.min(e.clientX + pad, innerWidth - w - 8);
+  const y = Math.min(e.clientY + pad, innerHeight - h - 8);
+  itemTipEl.style.left = Math.max(8, x) + 'px';
+  itemTipEl.style.top = Math.max(8, y) + 'px';
+}
+function hideItemTip() { itemTipEl.style.display = 'none'; }
+
+[...hotbarSlots, ...bpSlots].forEach(el => {
+  el.addEventListener('pointerenter', e => {
+    const item = slotItem(el);
+    if (!item) return hideItemTip();
+    fillItemTip(item);
+    itemTipEl.style.display = 'block';
+    placeItemTip(e);
+  });
+  el.addEventListener('pointermove', e => {
+    const item = slotItem(el);
+    if (!item) return hideItemTip();
+    if (itemTipEl.style.display !== 'block') itemTipEl.style.display = 'block';
+    fillItemTip(item);
+    placeItemTip(e);
+  });
+  el.addEventListener('pointerleave', hideItemTip);
+});
+
 // ── Flashlight — lumière 3D portée ──
-const flashlightLight = new THREE.PointLight(0xfff8e0, 0, 8);
+// Projecteur : cône de lumière dirigé vers le regard (et non une lumière qui entoure le joueur)
+const flashlightLight = new THREE.SpotLight(0xfff8e0, 0, 16, Math.PI / 6, 0.5, 1);
 scene.add(flashlightLight);
+scene.add(flashlightLight.target);
+const _flashDir = new THREE.Vector3();
 
 let flashShown = -1;
 function updateFlashlight(dt) {
   const item = invHotbar[hotbarSelected];
   if (item && item.id === 'flashlight' && item.battery > 0) {
-    flashlightLight.intensity = 1.8;
+    flashlightLight.intensity = 2.6;
+    // Source légèrement sous les yeux, cible placée devant la caméra
     flashlightLight.position.copy(camera.position);
+    flashlightLight.position.y -= 0.2;
+    _flashDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    flashlightLight.target.position.copy(camera.position).addScaledVector(_flashDir, 8);
     item.battery = Math.max(0, item.battery - dt * (100/35)); // ~35 sec
     const shown = Math.ceil(item.battery);
     if (shown !== flashShown) { flashShown = shown; renderAllSlots(); }
