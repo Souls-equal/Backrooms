@@ -309,6 +309,10 @@
       position: relative; pointer-events: none;
     }
     .slot-item .item-icon { font-size: 22px; line-height: 1; }
+    .slot-item .item-icon svg { width: 30px; height: 30px; display: block; }
+    .ico { width: 22px; height: 22px; display: block; margin: 0 auto 4px; }
+    #btn-use, #btn-pickup { flex-direction: column; gap: 3px; }
+    #btn-backpack .ico { margin: 0; }
     .slot-item .item-count {
       position: absolute; bottom: 2px; right: 4px;
       font-size: 9px; color: #ffe; font-family: monospace;
@@ -458,7 +462,7 @@
 <!-- Backpack overlay -->
 <div id="backpack-overlay">
   <div id="backpack-panel">
-    <h3>&#x1F392; Sac à dos</h3>
+    <h3>Sac à dos</h3>
     <div id="backpack-grid">
       <div class="bp-slot" data-bp="0"></div>
       <div class="bp-slot" data-bp="1"></div>
@@ -467,18 +471,18 @@
       <div class="bp-slot" data-bp="4"></div>
       <div class="bp-slot" data-bp="5"></div>
     </div>
-    <div id="drop-zone">&#x1F5D1; JETER L'OBJET</div>
+    <div id="drop-zone"><svg class="ico" style="display:inline-block;width:14px;height:14px;margin:0 6px 0 0;vertical-align:middle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg>JETER L'OBJET</div>
   </div>
 </div>
 
 <!-- Bouton backpack mobile -->
-<div id="btn-backpack" title="Sac à dos">&#x1F392;</div>
+<div id="btn-backpack" title="Sac à dos"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#b8a030" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8V6a4 4 0 0 1 8 0v2"/><rect x="5" y="8" width="14" height="13" rx="3"/><path d="M9 13h6M9 17h6"/></svg></div>
 <!-- Bouton utiliser mobile -->
-<div id="btn-use">&#x1F44A;<br>Utiliser</div>
+<div id="btn-use"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#c8a840" stroke-width="1.8" stroke-linejoin="round"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>Utiliser</div>
 <!-- Prompt ramasser -->
 <div id="pickup-prompt">[ E ] Ramasser</div>
 <!-- Bouton ramasser mobile -->
-<div id="btn-pickup">&#x1F4E6;<br>Ramasser</div>
+<div id="btn-pickup"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#c8a840" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/></svg>Ramasser</div>
 
 <canvas id="minimap" width="168" height="168"></canvas>
 <div id="hit-flash"></div>
@@ -1730,30 +1734,40 @@ function updateStats(dt, moving, sprinting) {
 // ═══════════════════════════════════════════════
 //  ITEMS — définitions
 // ═══════════════════════════════════════════════
+// ── Icônes des objets (SVG dessinés, sans emoji) ──
+const ITEM_ICONS = {
+  almond_water: `<svg viewBox="0 0 32 32"><rect x="12" y="3" width="8" height="4" rx="1" fill="#d83030"/><rect x="13" y="7" width="6" height="4" fill="#9cc8ff"/><path d="M10 11h12v16a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2z" fill="#5aa0ff"/><rect x="10" y="17" width="12" height="8" fill="#f2ead8"/></svg>`,
+  energy_bar: `<svg viewBox="0 0 32 32"><rect x="4" y="10" width="24" height="12" rx="2" fill="#c0702a"/><rect x="4" y="15" width="24" height="2" fill="#f4e8c8"/><rect x="8" y="12" width="6" height="1.5" rx="0.7" fill="#6a3a14"/></svg>`,
+  backshroom: `<svg viewBox="0 0 32 32"><rect x="13" y="16" width="6" height="11" rx="2" fill="#e8dcc0"/><path d="M4 17a12 10 0 0 1 24 0z" fill="#7a4f8f"/><circle cx="11" cy="12" r="1.8" fill="#f4f0e8"/><circle cx="18" cy="10" r="1.4" fill="#f4f0e8"/><circle cx="22" cy="14" r="1.3" fill="#f4f0e8"/></svg>`,
+  flashlight: `<svg viewBox="0 0 32 32"><rect x="12" y="13" width="8" height="15" rx="1.5" fill="#2b2b30"/><rect x="12" y="19" width="8" height="3" fill="#f0b020"/><rect x="10" y="6" width="12" height="7" rx="1.5" fill="#222226"/><rect x="11" y="3" width="10" height="3" rx="1" fill="#fff6c0"/></svg>`,
+  medkit: `<svg viewBox="0 0 32 32"><rect x="4" y="8" width="24" height="18" rx="2" fill="#f2f2f2"/><rect x="13" y="11" width="6" height="12" fill="#d02020"/><rect x="10" y="14" width="12" height="6" fill="#d02020"/></svg>`,
+  battery: `<svg viewBox="0 0 32 32"><rect x="10" y="7" width="12" height="20" rx="2" fill="#2fbf5a"/><rect x="13" y="4" width="6" height="3" rx="0.5" fill="#cccccc"/><path d="M16 11v8M12 15h8" stroke="#f4f4f4" stroke-width="2"/></svg>`,
+};
+
 const ITEM_DEFS = {
   almond_water: {
-    id: 'almond_water', name: 'Eau d\'amande', icon: '💧',
+    id: 'almond_water', name: 'Eau d\'amande', icon: ITEM_ICONS.almond_water,
     use(inv) { sanity = Math.min(100, sanity + 35); return true; }
   },
   energy_bar: {
-    id: 'energy_bar', name: 'Barre énergie', icon: '🍫',
+    id: 'energy_bar', name: 'Barre énergie', icon: ITEM_ICONS.energy_bar,
     use(inv) { stamina = Math.min(100, stamina + 60); hunger = Math.min(100, hunger + 100/6); return true; }
   },
   backshroom: {
-    id: 'backshroom', name: 'Backshroom', icon: '🍄',
+    id: 'backshroom', name: 'Backshroom', icon: ITEM_ICONS.backshroom,
     use(inv) { hunger = Math.min(100, hunger + 200/7); return true; }
   },
   flashlight: {
-    id: 'flashlight', name: 'Lampe torche', icon: '🔦',
+    id: 'flashlight', name: 'Lampe torche', icon: ITEM_ICONS.flashlight,
     battery: 100, // 0–100
     use(inv) { return false; } // utilisée passivement
   },
   medkit: {
-    id: 'medkit', name: 'Trousse de soin', icon: '🩹',
+    id: 'medkit', name: 'Trousse de soin', icon: ITEM_ICONS.medkit,
     use(inv) { hp = Math.min(100, hp + 45); return true; }
   },
   battery: {
-    id: 'battery', name: 'Pile', icon: '🔋',
+    id: 'battery', name: 'Pile', icon: ITEM_ICONS.battery,
     use(inv) {
       const f = [...invHotbar, ...invBp].find(i => i && i.id === 'flashlight');
       if (!f) return false;
@@ -1791,7 +1805,7 @@ function renderSlot(el, item) {
   const div = document.createElement('div');
   div.className = 'slot-item';
   const ico = document.createElement('span');
-  ico.className = 'item-icon'; ico.textContent = item.icon;
+  ico.className = 'item-icon'; ico.innerHTML = item.icon; // SVG interne, pas de texte utilisateur
   div.appendChild(ico);
   // Barre batterie pour la torche
   if (item.id === 'flashlight') {
