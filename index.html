@@ -1565,7 +1565,7 @@ function resetGame() {
   // Remettre les caisses à neuf
   for (const cd of crateData) {
     cd.open = false;
-    cd.mesh.material.color.setHex(0xffffff); // reset teinture
+    setCrateOpen(cd, false);
     cd.mesh.visible = true;
   }
 
@@ -1861,26 +1861,80 @@ btnUse.addEventListener('touchend', e => { e.preventDefault(); useSelectedItem()
 // ═══════════════════════════════════════════════
 //  CAISSES — génération dans le monde
 // ═══════════════════════════════════════════════
-const crateGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+// ═══════════════════════════════════════════════
+//  MODÈLES 3D — caisses et objets (construits en code)
+// ═══════════════════════════════════════════════
+const _geoCache = {}, _matCache = {};
+function geoCached(key, make) { return _geoCache[key] || (_geoCache[key] = make()); }
+function boxG(w, h, d)        { return geoCached('b'+w+'_'+h+'_'+d, () => new THREE.BoxGeometry(w, h, d)); }
+function cylG(rt, rb, h, s)   { return geoCached('c'+rt+'_'+rb+'_'+h+'_'+s, () => new THREE.CylinderGeometry(rt, rb, h, s)); }
+function sphG(r, ws, hs, tl)  { return geoCached('s'+r+'_'+ws+'_'+hs+'_'+tl, () => new THREE.SphereGeometry(r, ws, hs, 0, Math.PI*2, 0, tl)); }
+function lam(color, extra) {
+  const key = color + JSON.stringify(extra || {});
+  return _matCache[key] || (_matCache[key] = new THREE.MeshLambertMaterial(Object.assign({ color }, extra || {})));
+}
+function addPart(parent, geo, material, x, y, z, sy) {
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(x, y, z);
+  if (sy) m.scale.set(1, sy, 1);
+  parent.add(m);
+  return m;
+}
 
-// Texture caisse bois canvas
+// ── Caisse : corps en bois, montants et sangles métal, couvercle articulé ──
 const crateCanvas = document.createElement('canvas'); crateCanvas.width = crateCanvas.height = 64;
 const crateCtx = crateCanvas.getContext('2d');
 crateCtx.fillStyle = '#8B5E2A'; crateCtx.fillRect(0,0,64,64);
-// Planches
 crateCtx.strokeStyle = '#5C3A10'; crateCtx.lineWidth = 2;
 crateCtx.beginPath(); crateCtx.moveTo(0,21); crateCtx.lineTo(64,21); crateCtx.stroke();
 crateCtx.beginPath(); crateCtx.moveTo(0,43); crateCtx.lineTo(64,43); crateCtx.stroke();
 crateCtx.beginPath(); crateCtx.moveTo(21,0); crateCtx.lineTo(21,64); crateCtx.stroke();
 crateCtx.beginPath(); crateCtx.moveTo(43,0); crateCtx.lineTo(43,64); crateCtx.stroke();
-// Grain
-for (let i=0;i<200;i++){const x=Math.random()*64,y=Math.random()*64; crateCtx.fillStyle=`rgba(0,0,0,0.08)`; crateCtx.fillRect(x,y,1,2);}
+for (let i=0;i<200;i++){ const x=Math.random()*64, y=Math.random()*64; crateCtx.fillStyle='rgba(0,0,0,0.08)'; crateCtx.fillRect(x,y,1,2); }
 const crateTex = new THREE.CanvasTexture(crateCanvas);
-const crateMat = new THREE.MeshLambertMaterial({ map: crateTex });
+
+function buildCrate() {
+  const g = new THREE.Group();
+  const metal = lam(0x3a3a3a);
+  const brass = lam(0xa88a3a);
+  const bodyMat = new THREE.MeshLambertMaterial({ map: crateTex });
+  const lidMat  = new THREE.MeshLambertMaterial({ map: crateTex });
+
+  const body = addPart(g, boxG(0.7, 0.55, 0.7), bodyMat, 0, -0.075, 0);
+  // Montants métal dans les coins
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    addPart(g, boxG(0.06, 0.56, 0.06), metal, sx*0.33, -0.075, sz*0.33);
+  // Sangles horizontales (devant/derrière et côtés)
+  for (const y of [-0.22, 0.08]) {
+    for (const sz of [-1, 1]) addPart(g, boxG(0.72, 0.035, 0.03), metal, 0, y, sz*0.355);
+    for (const sx of [-1, 1]) addPart(g, boxG(0.03, 0.035, 0.72), metal, sx*0.355, y, 0);
+  }
+  // Cadenas / plaque laiton sur le devant
+  addPart(g, boxG(0.08, 0.08, 0.02), brass, 0, -0.075, 0.37);
+
+  // Couvercle : pivot sur le bord arrière
+  const pivot = new THREE.Group();
+  pivot.position.set(0, 0.2, -0.35);
+  g.add(pivot);
+  const lid = addPart(pivot, boxG(0.7, 0.15, 0.7), lidMat, 0, 0.075, 0.35);
+  addPart(pivot, boxG(0.7, 0.03, 0.03), metal, 0, 0.0, 0.04);      // charnière
+  addPart(pivot, boxG(0.7, 0.035, 0.03), metal, 0, 0.075, 0.69);   // sangle avant du couvercle
+
+  g.userData = { pivot, bodyMat, lidMat };
+  return g;
+}
+
+function setCrateOpen(cd, open) {
+  const u = cd.mesh.userData;
+  u.pivot.rotation.x = open ? -1.9 : 0;
+  const tint = open ? 0x4a3018 : 0xffffff;
+  u.bodyMat.color.setHex(tint);
+  u.lidMat.color.setHex(tint);
+}
 
 // Spawn caisses dans des cellules libres
 const CRATE_COUNT = 18;
-const crateData = []; // { mesh, row, col, open:false }
+const crateData = []; // { mesh, r, c, open:false }
 const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight','medkit','battery'];
 
 for (let i = 0; i < CRATE_COUNT; i++) {
@@ -1888,23 +1942,89 @@ for (let i = 0; i < CRATE_COUNT; i++) {
   do { r = 1+Math.floor(Math.random()*(ROWS-2)); c = 1+Math.floor(Math.random()*(COLS-2)); tries++; }
   while ((grid[r][c] !== 0 || (Math.abs(r-SR)<3 && Math.abs(c-SC)<3)) && tries < 200);
   if (grid[r][c] !== 0) continue;
-  const mesh = new THREE.Mesh(crateGeo, crateMat.clone());
+  const mesh = buildCrate();
   mesh.position.set(c*CELL, 0.35, r*CELL);
+  mesh.rotation.y = Math.floor(Math.random()*4) * Math.PI / 2;
   scene.add(mesh);
   crateData.push({ mesh, r, c, open: false });
 }
 
+// ── Objets : modèles 3D centrés sur l'origine (hauteur ≈ 0.3) ──
+function buildWater() {
+  const g = new THREE.Group();
+  const glass = lam(0x5aa0ff, { transparent: true, opacity: 0.55 });
+  addPart(g, cylG(0.075, 0.075, 0.22, 12), glass, 0, -0.02, 0);
+  addPart(g, cylG(0.03, 0.075, 0.05, 12), glass, 0, 0.115, 0);      // épaule
+  addPart(g, cylG(0.03, 0.03, 0.05, 10), glass, 0, 0.155, 0);       // col
+  addPart(g, cylG(0.036, 0.036, 0.03, 10), lam(0xd83030), 0, 0.195, 0); // bouchon
+  addPart(g, cylG(0.078, 0.078, 0.11, 12), lam(0xf2ead8), 0, -0.02, 0); // étiquette
+  return g;
+}
+
+function buildEnergyBar() {
+  const g = new THREE.Group();
+  addPart(g, boxG(0.2, 0.05, 0.12), lam(0xc0702a), 0, 0, 0);
+  addPart(g, boxG(0.205, 0.053, 0.03), lam(0xf4e8c8), 0, 0, 0);     // bande papier
+  addPart(g, boxG(0.12, 0.054, 0.02), lam(0x6a3a14), 0.02, 0, 0.065); // logo
+  return g;
+}
+
+function buildBackshroom() {
+  const g = new THREE.Group();
+  addPart(g, cylG(0.045, 0.055, 0.13, 10), lam(0xe8dcc0), 0, -0.035, 0); // pied
+  const cap = addPart(g, sphG(0.12, 14, 8, Math.PI / 2), lam(0x7a4f8f), 0, 0.03, 0, 0.7);
+  // Taches claires sur le chapeau (points sur la calotte)
+  const thetas = [0.5, 0.9, 0.4, 1.1, 0.8], phis = [0, 1.6, 3.1, 4.5, 5.2];
+  const spotMat = lam(0xf4f0e8);
+  thetas.forEach((t, i) => {
+    const R = 0.122, x = R * Math.sin(t) * Math.cos(phis[i]), z = R * Math.sin(t) * Math.sin(phis[i]);
+    const y = 0.03 + R * Math.cos(t) * 0.7;
+    addPart(g, sphG(0.018, 6, 4, Math.PI), spotMat, x, y, z);
+  });
+  return g;
+}
+
+function buildFlashlight() {
+  const g = new THREE.Group();
+  addPart(g, cylG(0.045, 0.045, 0.24, 12), lam(0x2b2b30), 0, -0.02, 0);   // corps
+  addPart(g, cylG(0.048, 0.048, 0.08, 12), lam(0xf0b020), 0, -0.04, 0);   // anneau de prise
+  addPart(g, cylG(0.065, 0.05, 0.07, 12), lam(0x222226), 0, 0.135, 0);    // tête
+  addPart(g, cylG(0.05, 0.05, 0.012, 12), lam(0xfff6c0, { emissive: 0x887a40 }), 0, 0.172, 0); // lentille
+  return g;
+}
+
+function buildMedkit() {
+  const g = new THREE.Group();
+  const white = lam(0xf2f2f2), red = lam(0xd02020);
+  addPart(g, boxG(0.24, 0.16, 0.14), white, 0, 0, 0);
+  for (const sz of [-1, 1]) {
+    addPart(g, boxG(0.14, 0.04, 0.012), red, 0, 0.0, sz*0.076);
+    addPart(g, boxG(0.04, 0.12, 0.012), red, 0, 0.0, sz*0.076);
+  }
+  addPart(g, boxG(0.08, 0.02, 0.05), lam(0x555555), 0, 0.09, 0);          // poignée
+  return g;
+}
+
+function buildBattery() {
+  const g = new THREE.Group();
+  addPart(g, cylG(0.06, 0.06, 0.16, 14), lam(0x2fbf5a), 0, 0, 0);
+  addPart(g, cylG(0.03, 0.03, 0.02, 10), lam(0xcccccc), 0, 0.09, 0);      // borne +
+  addPart(g, cylG(0.06, 0.06, 0.02, 14), lam(0x1d7a38), 0, -0.09, 0);     // base
+  return g;
+}
+
+const ITEM_BUILDERS = {
+  almond_water: buildWater, energy_bar: buildEnergyBar, backshroom: buildBackshroom,
+  flashlight: buildFlashlight, medkit: buildMedkit, battery: buildBattery,
+};
+
 // Items au sol
 const groundItems = []; // { mesh, item, x, z }
-const groundItemGeo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
 
 function spawnGroundItem(itemId, x, z) {
   const item = makeItem(itemId);
-  // Petit cube coloré
-  const colors = { almond_water:0x4488ff, energy_bar:0xff8800, backshroom:0x884488, flashlight:0xffcc00, medkit:0xff4040, battery:0x40ff80 };
-  const col = colors[itemId] !== undefined ? colors[itemId] : 0xffffff;
-  const mat = new THREE.MeshLambertMaterial({ color: col });
-  const mesh = new THREE.Mesh(groundItemGeo, mat);
+  const build = ITEM_BUILDERS[itemId] || buildBattery;
+  const mesh = build();
   const ox = (Math.random()-0.5)*1.2, oz = (Math.random()-0.5)*1.2;
   mesh.position.set(x+ox, 0.175, z+oz);
   scene.add(mesh);
@@ -1929,8 +2049,7 @@ function interact() {
     nearItem = null;
   } else if (nearCrate && !nearCrate.open) {
     nearCrate.open = true;
-    // Tinter la caisse en ouvert
-    nearCrate.mesh.material.color.setHex(0x3a2008);
+    setCrateOpen(nearCrate, true);
     // Drop 1–3 items aléatoires
     const n = 1 + Math.floor(Math.random()*3);
     for (let i=0;i<n;i++) {
@@ -2483,7 +2602,6 @@ function loop(now) {
   // ── Items au sol : bob flottant ──
   const t = now * 0.001;
   groundItems.forEach(gi => { gi.mesh.position.y = 0.175 + Math.sin(t*2 + gi.x)*0.06; gi.mesh.rotation.y += dt*1.2; });
-  crateData.forEach(cd => { if (!cd.open) cd.mesh.rotation.y += dt*0.3; });
 
   // ── Détection proximité (caisses + items) ──
   const px = camera.position.x, pz = camera.position.z;
