@@ -411,6 +411,27 @@
     #item-tip .tip-name { color: #d8b840; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
     #item-tip .tip-desc { color: #a8a090; font-size: 11px; line-height: 1.45; }
     #item-tip .tip-extra { color: #c8a840; font-size: 10px; margin-top: 5px; letter-spacing: 1px; }
+    /* ── TITRE DE NIVEAU ── */
+    #level-card {
+      position: fixed; top: 36%; left: 0; right: 0; text-align: center;
+      font-family: monospace; font-size: 28px; letter-spacing: 12px; color: #d8c890;
+      text-shadow: 0 0 24px #9a70ff; pointer-events: none; z-index: 25; opacity: 0; display: none;
+    }
+    #level-card.show { display: block; animation: lcFade 3s ease forwards; }
+    @keyframes lcFade { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+    /* ── LECTURE DE NOTE ── */
+    #note-overlay {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.78); z-index: 35; cursor: pointer;
+    }
+    #note-overlay .note-paper {
+      max-width: 440px; width: 86%; background: #e9dfc0; color: #2a2414;
+      font-family: 'Courier New', monospace; padding: 28px 30px; border-radius: 3px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6); transform: rotate(-0.6deg);
+    }
+    #note-overlay .note-title { font-size: 12px; letter-spacing: 4px; color: #6b5a30; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(107,90,48,0.4); }
+    #note-overlay .note-text { font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+    #note-overlay .note-hint { margin-top: 18px; font-size: 10px; letter-spacing: 2px; color: #8a7a50; text-align: right; }
     /* ── FLASH DE DÉGÂTS ── */
     #hit-flash {
       position: fixed; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
@@ -424,8 +445,20 @@
   <div class="sub">LEVEL 0</div>
   <div class="hint">CLIC POUR ENTRER &nbsp;·&nbsp; ZQSD — marcher &nbsp;·&nbsp; SHIFT — courir &nbsp;·&nbsp; R — utiliser &nbsp;·&nbsp; TAB — sac &nbsp;·&nbsp; M — carte &nbsp;·&nbsp; ESC — menu</div>
   <button id="btn-resume" style="display:none;margin-top:8px;background:none;border:1px solid rgba(180,160,48,0.5);color:#b8a030;padding:8px 24px;border-radius:6px;font-family:monospace;font-size:11px;letter-spacing:3px;cursor:pointer;">REPRENDRE</button>
+  <button id="btn-continue" class="menu-btn" style="display:none;margin-top:8px;background:none;border:1px solid rgba(180,160,48,0.5);color:#b8a030;padding:8px 24px;border-radius:6px;font-family:monospace;font-size:11px;letter-spacing:3px;cursor:pointer;">CONTINUER</button>
+  <button id="btn-quality" class="menu-btn" style="display:inline-block;margin-top:8px;background:none;border:1px solid rgba(180,160,48,0.3);color:#7a6e30;padding:6px 18px;border-radius:6px;font-family:monospace;font-size:10px;letter-spacing:2px;cursor:pointer;">GRAPHISMES</button>
 </div>
 <div id="hud">LEVEL 0 &nbsp;·&nbsp; NE PAS REGARDER DERRIÈRE VOUS</div>
+<div id="level-card"></div>
+
+<!-- Lecture d'une note -->
+<div id="note-overlay">
+  <div class="note-paper">
+    <div class="note-title">NOTE</div>
+    <div class="note-text" id="note-text"></div>
+    <div class="note-hint">CLIC OU ESC POUR FERMER</div>
+  </div>
+</div>
 <div id="timer">00:00</div>
 <div id="crosshair"></div>
 <div id="btn-menu" title="Menu">&#9776;</div>
@@ -493,7 +526,7 @@
 <!-- Prompt ramasser -->
 <div id="pickup-prompt">[ E ] Ramasser</div>
 <!-- Bouton ramasser mobile -->
-<div id="btn-pickup"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#c8a840" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/></svg>Ramasser</div>
+<div id="btn-pickup"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#c8a840" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/></svg><span id="pickup-label">Ramasser</span></div>
 
 <canvas id="minimap" width="168" height="168"></canvas>
 <div id="hit-flash"></div>
@@ -685,83 +718,34 @@ window.addEventListener('resize', () => {
 });
 
 // ═══════════════════════════════════════════════
-//  WORLD — open grid + random walls (vrai style Backrooms)
+//  WORLD — grille ouverte + murs aléatoires (vrai style Backrooms)
+//  buildWorld(niveau) régénère tout le décor : grille, murs, plinthes,
+//  lumières, sortie, caisses et spawn du monstre. Le décor vit dans worldRoot.
 // ═══════════════════════════════════════════════
 const COLS = 40;   // colonnes
 const ROWS = 40;   // lignes
 const CELL = 4;    // unités Three.js par cellule
 const WH   = 3.2;  // hauteur murs
-const WALL_DENSITY = 0.22; // 22% de cases = mur
-
-// Grille : 0=libre, 1=mur
-const grid = [];
-for (let r = 0; r < ROWS; r++) {
-  grid[r] = [];
-  for (let c = 0; c < COLS; c++) {
-    // Bords toujours solides
-    if (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) {
-      grid[r][c] = 1;
-    } else {
-      grid[r][c] = Math.random() < WALL_DENSITY ? 1 : 0;
-    }
-  }
-}
-
-// S'assurer que le spawn (centre) est libre sur 3×3
 const SR = Math.floor(ROWS/2), SC = Math.floor(COLS/2);
-for (let dr = -1; dr <= 1; dr++)
-  for (let dc = -1; dc <= 1; dc++)
-    grid[SR+dr][SC+dc] = 0;
 
-// Garantir la connectivité par flood-fill depuis le spawn
-// On ouvre des passages si une zone est isolée
-function floodFill(sr, sc) {
-  const visited = Array.from({length:ROWS}, ()=>new Array(COLS).fill(false));
-  const stack = [[sr,sc]];
-  visited[sr][sc] = true;
-  while (stack.length) {
-    const [r,c] = stack.pop();
-    for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-      const nr=r+dr, nc=c+dc;
-      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!visited[nr][nc]&&grid[nr][nc]===0) {
-        visited[nr][nc]=true;
-        stack.push([nr,nc]);
-      }
-    }
-  }
-  return visited;
+// Grille : 0=libre, 1=mur (remplacée à chaque niveau)
+let grid = [];
+let level = 0;
+let worldRoot = null;     // Group : géométrie du niveau courant
+let activeLights = [];
+let exitCell = null;      // { r, c, x, z, light }
+
+// Plus on descend, plus le niveau est dense, sombre et rapide
+function levelParams(n) {
+  return {
+    density:   Math.min(0.32, 0.22 + 0.025 * n),  // part de murs
+    lightKeep: Math.max(0.45, 1 - 0.15 * n),       // part des emplacements de lampe conservés
+    fog:       Math.min(0.075, 0.055 + 0.008 * n),
+    chaseMul:  Math.min(1.4, 1 + 0.08 * n),        // vitesse de poursuite du monstre
+  };
 }
 
-// Ouvrir des couloirs pour relier les zones isolées (3 passes)
-for (let pass = 0; pass < 3; pass++) {
-  const visited = floodFill(SR, SC);
-  for (let r = 1; r < ROWS-1; r++) {
-    for (let c = 1; c < COLS-1; c++) {
-      if (grid[r][c] === 0 && !visited[r][c]) {
-        // Trouver la direction vers la zone principale
-        let bestR = r, bestC = c;
-        let found = false;
-        for (let dist = 1; dist < 20 && !found; dist++) {
-          for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0],[-1,-1],[1,1],[-1,1],[1,-1]]) {
-            const tr=r+dr*dist, tc=c+dc*dist;
-            if (tr>=0&&tr<ROWS&&tc>=0&&tc<COLS&&visited[tr][tc]) {
-              // Creuser un couloir
-              let cr=r, cc=c;
-              while (cr!==tr||cc!==tc) {
-                grid[cr][cc]=0;
-                if (Math.abs(tr-cr)>Math.abs(tc-cc)) cr+= tr>cr?1:-1;
-                else cc+= tc>cc?1:-1;
-              }
-              found=true; break;
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// Build instanced meshes
+// Matériaux et géométries partagés (créés une seule fois)
 const wallTex  = makeWallTex();
 const floorTex = makeFloorTex();
 const ceilTex  = makeCeilTex();
@@ -771,48 +755,138 @@ const wallMat  = new THREE.MeshLambertMaterial({ map: floorTex });
 const floorMat = new THREE.MeshLambertMaterial({ map: wallTex });
 const ceilMat  = new THREE.MeshLambertMaterial({ map: ceilTex });
 
-// Count
-let nWalls=0, nFloors=0;
-for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
-  if (grid[r][c]===1) nWalls++; else nFloors++;
-}
-
 const wallGeo  = new THREE.BoxGeometry(CELL, WH, CELL);
 const floorGeo = new THREE.PlaneGeometry(CELL, CELL);
 const ceilGeo  = new THREE.PlaneGeometry(CELL, CELL);
 
-const iWall  = new THREE.InstancedMesh(wallGeo,  wallMat,  nWalls);
-const iFloor = new THREE.InstancedMesh(floorGeo, floorMat, nFloors);
-const iCeil  = new THREE.InstancedMesh(ceilGeo,  ceilMat,  nFloors);
-
 const dummy = new THREE.Object3D();
-let wi=0, fi=0;
 
-for (let r=0;r<ROWS;r++) {
-  for (let c=0;c<COLS;c++) {
-    const x = c*CELL, z = r*CELL;
-    if (grid[r][c]===1) {
-      dummy.position.set(x, WH/2, z);
-      dummy.rotation.set(0,0,0);
-      dummy.updateMatrix();
-      iWall.setMatrixAt(wi++, dummy.matrix);
-    } else {
-      dummy.position.set(x, 0, z);
-      dummy.rotation.set(-Math.PI/2,0,0);
-      dummy.updateMatrix();
-      iFloor.setMatrixAt(fi, dummy.matrix);
-      dummy.position.set(x, WH, z);
-      dummy.rotation.set(Math.PI/2,0,0);
-      dummy.updateMatrix();
-      iCeil.setMatrixAt(fi, dummy.matrix);
-      fi++;
+// Génère une grille : bords pleins, murs aléatoires, spawn dégagé, zones reliées
+function floodFill(g, sr, sc) {
+  const visited = Array.from({length:ROWS}, ()=>new Array(COLS).fill(false));
+  const stack = [[sr,sc]];
+  visited[sr][sc] = true;
+  while (stack.length) {
+    const [r,c] = stack.pop();
+    for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!visited[nr][nc]&&g[nr][nc]===0) {
+        visited[nr][nc]=true;
+        stack.push([nr,nc]);
+      }
     }
   }
+  return visited;
 }
-iWall.instanceMatrix.needsUpdate  = true;
-iFloor.instanceMatrix.needsUpdate = true;
-iCeil.instanceMatrix.needsUpdate  = true;
-scene.add(iWall, iFloor, iCeil);
+
+function generateGrid(density) {
+  const g = [];
+  for (let r = 0; r < ROWS; r++) {
+    g[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      // Bords toujours solides
+      g[r][c] = (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) ? 1
+              : (Math.random() < density ? 1 : 0);
+    }
+  }
+  // Spawn (centre) libre sur 3×3
+  for (let dr = -1; dr <= 1; dr++)
+    for (let dc = -1; dc <= 1; dc++) g[SR+dr][SC+dc] = 0;
+
+  // Ouvrir des couloirs pour relier les zones isolées (3 passes)
+  for (let pass = 0; pass < 3; pass++) {
+    const visited = floodFill(g, SR, SC);
+    for (let r = 1; r < ROWS-1; r++) {
+      for (let c = 1; c < COLS-1; c++) {
+        if (g[r][c] === 0 && !visited[r][c]) {
+          for (let dist = 1; dist < 20; dist++) {
+            let found = false;
+            for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0],[-1,-1],[1,1],[-1,1],[1,-1]]) {
+              const tr=r+dr*dist, tc=c+dc*dist;
+              if (tr>=0&&tr<ROWS&&tc>=0&&tc<COLS&&visited[tr][tc]) {
+                // Creuser un couloir
+                let cr=r, cc=c;
+                while (cr!==tr||cc!==tc) {
+                  g[cr][cc]=0;
+                  if (Math.abs(tr-cr)>Math.abs(tc-cc)) cr+= tr>cr?1:-1;
+                  else cc+= tc>cc?1:-1;
+                }
+                found=true; break;
+              }
+            }
+            if (found) break;
+          }
+        }
+      }
+    }
+  }
+  return g;
+}
+
+// Distances (pas) depuis le spawn, -1 si inaccessible
+function bfsDistances(g, sr, sc) {
+  const dist = Array.from({length: ROWS}, () => new Array(COLS).fill(-1));
+  const q = [[sr, sc]];
+  dist[sr][sc] = 0;
+  for (let i = 0; i < q.length; i++) {
+    const [r, c] = q[i];
+    for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&dist[nr][nc]<0&&g[nr][nc]===0) {
+        dist[nr][nc] = dist[r][c] + 1;
+        q.push([nr,nc]);
+      }
+    }
+  }
+  return dist;
+}
+
+// Vérifie qu'une cellule est libre ET que ses 4 voisins directs sont aussi libres
+function isSafeCell(r, c) {
+  if (r<2||r>ROWS-3||c<2||c>COLS-3) return false;
+  if (grid[r][c] !== 0) return false;
+  for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+    if (grid[r+dr][c+dc] !== 0) return false;
+  }
+  return true;
+}
+
+// ── Murs et sol/plafond (instances) ──
+function buildWallMeshes() {
+  let nWalls=0, nFloors=0;
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+    if (grid[r][c]===1) nWalls++; else nFloors++;
+  }
+  const iWall  = new THREE.InstancedMesh(wallGeo,  wallMat,  nWalls);
+  const iFloor = new THREE.InstancedMesh(floorGeo, floorMat, nFloors);
+  const iCeil  = new THREE.InstancedMesh(ceilGeo,  ceilMat,  nFloors);
+  let wi=0, fi=0;
+  for (let r=0;r<ROWS;r++) {
+    for (let c=0;c<COLS;c++) {
+      const x = c*CELL, z = r*CELL;
+      if (grid[r][c]===1) {
+        dummy.position.set(x, WH/2, z);
+        dummy.rotation.set(0,0,0);
+        dummy.updateMatrix();
+        iWall.setMatrixAt(wi++, dummy.matrix);
+      } else {
+        dummy.position.set(x, 0, z);
+        dummy.rotation.set(-Math.PI/2,0,0);
+        dummy.updateMatrix();
+        iFloor.setMatrixAt(fi, dummy.matrix);
+        dummy.position.set(x, WH, z);
+        dummy.rotation.set(Math.PI/2,0,0);
+        dummy.updateMatrix();
+        iCeil.setMatrixAt(fi, dummy.matrix);
+        fi++;
+      }
+    }
+  }
+  iWall.instanceMatrix.needsUpdate  = true;
+  iFloor.instanceMatrix.needsUpdate = true;
+  iCeil.instanceMatrix.needsUpdate  = true;
+  worldRoot.add(iWall, iFloor, iCeil);
+}
 
 // ═══════════════════════════════════════════════
 //  PLINTHE — bande vert-marron-jaunâtre en bas des murs
@@ -858,54 +932,48 @@ const dirs4 = [
   { dr:-1, dc:  0, ox: 0,       oz: -CELL/2, geo: plintheGeoX }, // mur en haut
 ];
 
-// Compter par type de géo
-let nPlinthesX = 0, nPlinthesZ = 0;
-for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
-  if (grid[r][c] !== 0) continue;
-  for (const d of dirs4) {
-    const nr=r+d.dr, nc=c+d.dc;
-    if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1) {
-      if (d.geo === plintheGeoX) nPlinthesX++; else nPlinthesZ++;
-    }
-  }
-}
-
-const iPlinthX = new THREE.InstancedMesh(plintheGeoX, plintheMat, nPlinthesX);
-const iPlinthZ = new THREE.InstancedMesh(plintheGeoZ, plintheMat, nPlinthesZ);
-let pxi=0, pzi=0;
-
-for (let r=0;r<ROWS;r++) {
-  for (let c=0;c<COLS;c++) {
+function buildPlinthes() {
+  let nPlinthesX = 0, nPlinthesZ = 0;
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
     if (grid[r][c] !== 0) continue;
-    const wx = c*CELL, wz = r*CELL;
     for (const d of dirs4) {
       const nr=r+d.dr, nc=c+d.dc;
-      if (!(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1)) continue;
-      dummy.position.set(wx + d.ox, plintheH/2, wz + d.oz);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      if (d.geo === plintheGeoX) iPlinthX.setMatrixAt(pxi++, dummy.matrix);
-      else                        iPlinthZ.setMatrixAt(pzi++, dummy.matrix);
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1) {
+        if (d.geo === plintheGeoX) nPlinthesX++; else nPlinthesZ++;
+      }
     }
   }
+  const iPlinthX = new THREE.InstancedMesh(plintheGeoX, plintheMat, nPlinthesX);
+  const iPlinthZ = new THREE.InstancedMesh(plintheGeoZ, plintheMat, nPlinthesZ);
+  let pxi=0, pzi=0;
+  for (let r=0;r<ROWS;r++) {
+    for (let c=0;c<COLS;c++) {
+      if (grid[r][c] !== 0) continue;
+      const wx = c*CELL, wz = r*CELL;
+      for (const d of dirs4) {
+        const nr=r+d.dr, nc=c+d.dc;
+        if (!(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&grid[nr][nc]===1)) continue;
+        dummy.position.set(wx + d.ox, plintheH/2, wz + d.oz);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        if (d.geo === plintheGeoX) iPlinthX.setMatrixAt(pxi++, dummy.matrix);
+        else                        iPlinthZ.setMatrixAt(pzi++, dummy.matrix);
+      }
+    }
+  }
+  iPlinthX.instanceMatrix.needsUpdate = true;
+  iPlinthZ.instanceMatrix.needsUpdate = true;
+  worldRoot.add(iPlinthX, iPlinthZ);
 }
-iPlinthX.instanceMatrix.needsUpdate = true;
-iPlinthZ.instanceMatrix.needsUpdate = true;
-scene.add(iPlinthX, iPlinthZ);
 
 // ═══════════════════════════════════════════════
 //  LIGHTING — marge stricte + mesh LED visible
 // ═══════════════════════════════════════════════
-scene.add(new THREE.AmbientLight(0xffe090, 0.18));
-
 // Mesh LED émissif sur le plafond — 2 tubes côte à côte comme la texture
 // Tube : long sur X, fin sur Z, plat sur Y
 // Le PlaneGeometry plafond a rotation.x = PI/2 ce qui inverse les axes UV :
 // canvas X → monde Z  |  canvas Y → monde X
-// Les tubes dans la texture sont larges sur canvas-X = monde-Z
-// et leur position varie sur canvas-Y = monde-X
-//
 // tubeW  = largeur tube sur canvas-X → géo doit être large sur Z
 // offsets → sur X (canvas-Y)
 const tubeW  = CELL * 0.76;  // le long de Z (canvas X)
@@ -913,8 +981,6 @@ const tubeD  = CELL * 0.07;  // le long de X (canvas Y = épaisseur du tube)
 const tubeHh = 0.03;
 
 // Offsets sur X (canvas Y = monde X)
-// tube1 : (ledY + tubeH/2 - 0.5) * CELL  → (0.38 + 0.035 - 0.5) * CELL
-// tube2 : (ledY + tubeH + gap + tubeH/2 - 0.5) * CELL → (0.515 - 0.5) * CELL
 const tube1OffsetX = (0.38 + 0.035 - 0.5) * CELL;   // ≈ -0.34
 const tube2OffsetX = (0.38 + 0.07 + 0.03 + 0.035 - 0.5) * CELL; // ≈ +0.06
 
@@ -923,94 +989,198 @@ const ledGeoOn  = new THREE.BoxGeometry(tubeD, tubeHh, tubeW);
 const ledMatOn  = new THREE.MeshBasicMaterial({ color: 0xfffde0 });
 const ledMatOff = new THREE.MeshBasicMaterial({ color: 0x1e1c14 });
 
-// Vérifie qu'une cellule est libre ET que ses 4 voisins directs sont aussi libres
-function isSafeCell(r, c) {
-  if (r<2||r>ROWS-3||c<2||c>COLS-3) return false;
-  if (grid[r][c] !== 0) return false;
-  for (const [dr,dc] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-    if (grid[r+dr][c+dc] !== 0) return false;
-  }
-  return true;
-}
+// Matériaux non clonés (à ne jamais libérer lors d'un changement de niveau)
+const SHARED_MATS = new Set([wallMat, floorMat, ceilMat, plintheMat]);
 
-const activeLights = [];
+function buildLights(keep) {
+  activeLights = [];
+  const litCells = new Set();
+  for (let r=3; r<ROWS-2; r+=5) {
+    for (let c=3; c<COLS-2; c+=5) {
+      if (Math.random() > keep) continue;   // emplacement vide : plus sombre aux niveaux profonds
+      let placed = false;
+      for (let dr=-3; dr<=3&&!placed; dr++) {
+        for (let dc=-3; dc<=3&&!placed; dc++) {
+          const nr=r+dr, nc=c+dc;
+          if (!isSafeCell(nr, nc)) continue;
 
-for (let r=3; r<ROWS-2; r+=5) {
-  for (let c=3; c<COLS-2; c+=5) {
-    let placed = false;
-    for (let dr=-3; dr<=3&&!placed; dr++) {
-      for (let dc=-3; dc<=3&&!placed; dc++) {
-        const nr=r+dr, nc=c+dc;
-        if (!isSafeCell(nr, nc)) continue;
+          const px = nc*CELL, pz = nr*CELL, py = WH - 0.015;
 
-        const px = nc*CELL, pz = nr*CELL, py = WH - 0.015;
+          // PointLight
+          const pl = new THREE.PointLight(0xffe0a0, 1.6, 16);
+          pl.position.set(px, WH - 0.2, pz);
+          worldRoot.add(pl);
 
-        // PointLight
-        const pl = new THREE.PointLight(0xffe0a0, 1.6, 16);
-        pl.position.set(px, WH - 0.2, pz);
-        scene.add(pl);
+          // 2 tubes ON (visibles quand allumé)
+          const tube1on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
+          tube1on.position.set(px + tube1OffsetX, py, pz);
+          worldRoot.add(tube1on);
 
-        // 2 tubes ON (visibles quand allumé)
-        const tube1on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
-        tube1on.position.set(px + tube1OffsetX, py, pz);
-        scene.add(tube1on);
+          const tube2on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
+          tube2on.position.set(px + tube2OffsetX, py, pz);
+          worldRoot.add(tube2on);
 
-        const tube2on = new THREE.Mesh(ledGeoOn, ledMatOn.clone());
-        tube2on.position.set(px + tube2OffsetX, py, pz);
-        scene.add(tube2on);
+          // 2 tubes OFF (visibles quand éteint)
+          const tube1off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+          tube1off.position.set(px + tube1OffsetX, py, pz);
+          tube1off.visible = false;
+          worldRoot.add(tube1off);
 
-        // 2 tubes OFF (visibles quand éteint)
-        const tube1off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
-        tube1off.position.set(px + tube1OffsetX, py, pz);
-        tube1off.visible = false;
-        scene.add(tube1off);
+          const tube2off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+          tube2off.position.set(px + tube2OffsetX, py, pz);
+          tube2off.visible = false;
+          worldRoot.add(tube2off);
 
-        const tube2off = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
-        tube2off.position.set(px + tube2OffsetX, py, pz);
-        tube2off.visible = false;
-        scene.add(tube2off);
-
-        const willFlicker = Math.random() < 0.3;
-        activeLights.push({
-          light: pl, base: 1.6,
-          flicker: willFlicker,
-          tubesOn:  [tube1on,  tube2on],
-          tubesOff: [tube1off, tube2off],
-          isOn: true
-        });
-        placed = true;
+          const willFlicker = Math.random() < 0.3;
+          activeLights.push({
+            light: pl, base: 1.6,
+            flicker: willFlicker,
+            tubesOn:  [tube1on,  tube2on],
+            tubesOff: [tube1off, tube2off],
+            isOn: true
+          });
+          litCells.add(nr+','+nc);
+          placed = true;
+        }
       }
+    }
+  }
+
+  // ── LEDs éteintes décoratives — toutes les cellules libres restantes (espacement 2) ──
+  for (let r=1; r<ROWS-1; r+=2) {
+    for (let c=1; c<COLS-1; c+=2) {
+      if (grid[r][c] !== 0) continue;
+      if (litCells.has(r+','+c)) continue;
+      const px = c*CELL, pz = r*CELL, py = WH - 0.015;
+      const d1 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+      d1.position.set(px + tube1OffsetX, py, pz);
+      worldRoot.add(d1);
+      const d2 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
+      d2.position.set(px + tube2OffsetX, py, pz);
+      worldRoot.add(d2);
     }
   }
 }
 
-// ── LEDs éteintes décoratives — toutes les cellules libres restantes ──
-// Construire un Set des cellules déjà occupées par une lumière active
-const litCells = new Set();
-for (let r=3; r<ROWS-2; r+=5)
-  for (let c=3; c<COLS-2; c+=5)
-    for (let dr=-3; dr<=3; dr++)
-      for (let dc=-3; dc<=3; dc++) {
-        const nr=r+dr, nc=c+dc;
-        if (isSafeCell(nr,nc)) { litCells.add(nr+','+nc); break; }
-      }
+// ── Sortie du niveau : passage violet, choisi parmi les cases les plus éloignées du spawn ──
+function pickExitCell() {
+  const dist = bfsDistances(grid, SR, SC);
+  let maxD = 0;
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) if (dist[r][c] > maxD) maxD = dist[r][c];
+  const far = [];
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+    if (dist[r][c] >= maxD * 0.85) far.push([r, c]);
+  }
+  return far[Math.floor(Math.random() * far.length)];
+}
 
-// Placer un mesh éteint sur chaque cellule libre non déjà éclairée (espacement 2)
-for (let r=1; r<ROWS-1; r+=2) {
-  for (let c=1; c<COLS-1; c+=2) {
-    if (grid[r][c] !== 0) continue;
-    if (litCells.has(r+','+c)) continue;
-    const px = c*CELL, pz = r*CELL, py = WH - 0.015;
-    const d1 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
-    d1.position.set(px + tube1OffsetX, py, pz);
-    scene.add(d1);
-    const d2 = new THREE.Mesh(ledGeoOn, ledMatOff.clone());
-    d2.position.set(px + tube2OffsetX, py, pz);
-    scene.add(d2);
+function buildExit(r, c) {
+  const x = c*CELL, z = r*CELL;
+  const g = new THREE.Group();
+  const frame = lam(0x2a2620);
+  addPart(g, boxG(0.22, 2.7, 0.22), frame, -0.95, 1.35, 0);
+  addPart(g, boxG(0.22, 2.7, 0.22), frame,  0.95, 1.35, 0);
+  addPart(g, boxG(2.12, 0.22, 0.22), frame, 0, 2.6, 0);
+  const portal = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 2.5),
+                                new THREE.MeshBasicMaterial({ color: 0x4a2470 }));
+  portal.position.set(0, 1.25, 0.02);
+  g.add(portal);
+  // Second plan perpendiculaire : le passage reste visible quel que soit l'angle d'approche
+  const portal2 = portal.clone();
+  portal2.position.set(0, 1.25, 0);
+  portal2.rotation.y = Math.PI / 2;
+  g.add(portal2);
+  const light = new THREE.PointLight(0x9a70ff, 1.2, 9);
+  light.position.set(0, 1.5, 0.8);
+  g.add(light);
+  g.position.set(x, 0, z);
+  worldRoot.add(g);
+  return { r, c, x, z, light, group: g };
+}
+
+// ── Caisses : objets de jeu, reconstruits depuis la sauvegarde si besoin ──
+function placeCrates(saved) {
+  if (saved && saved.crates) {
+    for (const s of saved.crates) {
+      const mesh = buildCrate();
+      mesh.position.set(s.c*CELL, 0, s.r*CELL);
+      mesh.rotation.y = s.rot;
+      worldRoot.add(mesh);
+      const cd = { mesh, r: s.r, c: s.c, open: !!s.open };
+      setCrateOpen(cd, cd.open);
+      crateData.push(cd);
+    }
+    return;
+  }
+  const onExit = (r, c) => exitCell && r === exitCell.r && c === exitCell.c;
+  for (let i = 0; i < CRATE_COUNT; i++) {
+    let r, c, tries = 0;
+    do { r = 1+Math.floor(Math.random()*(ROWS-2)); c = 1+Math.floor(Math.random()*(COLS-2)); tries++; }
+    while ((grid[r][c] !== 0 || (Math.abs(r-SR)<3 && Math.abs(c-SC)<3) || onExit(r, c)) && tries < 200);
+    if (grid[r][c] !== 0 || onExit(r, c)) continue;
+    const mesh = buildCrate();
+    mesh.position.set(c*CELL, 0, r*CELL);
+    mesh.rotation.y = Math.floor(Math.random()*4) * Math.PI / 2;
+    worldRoot.add(mesh);
+    crateData.push({ mesh, r, c, open: false });
   }
 }
 
-const MAX_LIGHTS = 8;
+// Quelques notes posées au sol, loin du spawn
+function spawnLevelNotes(count) {
+  for (let i = 0, tries = 0; i < count && tries < 400; tries++) {
+    const r = 1 + Math.floor(Math.random()*(ROWS-2));
+    const c = 1 + Math.floor(Math.random()*(COLS-2));
+    if (grid[r][c] !== 0 || (Math.abs(r-SR) < 4 && Math.abs(c-SC) < 4)) continue;
+    if (exitCell && r === exitCell.r && c === exitCell.c) continue;
+    spawnGroundItem('note', c*CELL, r*CELL, false, { noteIdx: Math.floor(Math.random()*NOTES.length) });
+    i++;
+  }
+}
+
+function disposeWorld() {
+  if (!worldRoot) return;
+  scene.remove(worldRoot);
+  worldRoot.traverse(o => {
+    if (o.isInstancedMesh) o.dispose();
+    if (o.material && !SHARED_MATS.has(o.material)) o.material.dispose();
+  });
+  worldRoot = null;
+}
+
+// Retire caisses et objets au sol du niveau précédent
+function clearLevelObjects() {
+  crateData.length = 0;
+  for (const gi of groundItems) scene.remove(gi.mesh);
+  groundItems.length = 0;
+}
+
+// Construit le niveau n. Si saved est fourni (sauvegarde), reprend la grille, les caisses et la sortie.
+function buildWorld(n, saved) {
+  const P = levelParams(n);
+  level = n;
+  scene.fog.density = P.fog;
+  monsterChaseSpeed = MON_SPEED_CHASE * P.chaseMul;
+
+  clearLevelObjects();
+  disposeWorld();
+  worldRoot = new THREE.Group();
+  scene.add(worldRoot);
+
+  grid = (saved && saved.grid) ? saved.grid.map(s => [...s].map(Number)) : generateGrid(P.density);
+  buildWallMeshes();
+  buildPlinthes();
+  if (saved && saved.exit) exitCell = buildExit(saved.exit.r, saved.exit.c);
+  else { const p = pickExitCell(); exitCell = buildExit(p[0], p[1]); }
+  buildLights(P.lightKeep);
+  placeCrates(saved);
+  if (!saved) spawnLevelNotes(2);
+
+  const sp = nearestFreeCell(ROWS - 4, COLS - 4);
+  mSpawnR = sp[0]; mSpawnC = sp[1];
+}
+
+let MAX_LIGHTS = 8;   // lampes actives simultanées (réglé par la qualité graphique)
 function cullLights() {
   const px = camera.position.x, pz = camera.position.z;
   const sorted = activeLights.map(l => ({ l, d: (l.light.position.x-px)**2 + (l.light.position.z-pz)**2 }))
@@ -1133,7 +1303,7 @@ const mobileUI  = document.getElementById('mobile-ui');
 const btnMenu   = document.getElementById('btn-menu');
 
 function showMenu() {
-  overlay.querySelector('.sub').textContent = 'LEVEL 0' + (bestTime > 0 ? '  ·  RECORD ' + formatTime(bestTime) : '');
+  overlay.querySelector('.sub').textContent = 'LEVEL ' + level + (bestTime > 0 ? '  ·  RECORD ' + formatTime(bestTime) : '');
   overlay.style.display  = 'flex';
   hud.style.display      = 'none';
   crosshair.style.display= 'none';
@@ -1148,6 +1318,7 @@ function showMenu() {
   dropZone.style.display = 'none';
   closeBackpackUI();
   btnMenu.style.display  = 'none';
+  updateMenuButtons();
 }
 function hideMenu() {
   overlay.style.display  = 'none';
@@ -1187,6 +1358,8 @@ function enterGame() {
 }
 
 function goToMenu() {
+  saveGame();
+  noteOverlayEl.style.display = 'none';   // ferme une note ouverte
   gameState = 'menu';
   paused = true;
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1224,6 +1397,8 @@ document.addEventListener('keydown', e => {
       if (survivalTime > 0 && !gameOverShown) enterGame();
     } else if (gameState === 'backpack') {
       closeBackpackUI();
+    } else if (gameState === 'note') {
+      closeNote();
     }
   }
   if (e.code === 'Tab') {
@@ -1422,8 +1597,8 @@ function updatePlayer(dt) {
     const margin = 0.6;
     const nx=camera.position.x+vx;
     const nz=camera.position.z+vz;
-    if (!isWall(nx + Math.sign(vx)*margin, camera.position.z)) camera.position.x=nx;
-    if (!isWall(camera.position.x, nz + Math.sign(vz)*margin)) camera.position.z=nz;
+    if (!isWall(nx + Math.sign(vx)*margin, camera.position.z) && !crateBlocks(nx, camera.position.z)) camera.position.x=nx;
+    if (!isWall(camera.position.x, nz + Math.sign(vz)*margin) && !crateBlocks(camera.position.x, nz)) camera.position.z=nz;
     bobTime += dt * (actualSprint ? 9 : 6);
     bobY = Math.sin(bobTime) * (actualSprint ? 0.05 : 0.025);
   } else {
@@ -1532,6 +1707,7 @@ function formatTime(s) {
 function triggerGameOver(cause) {
   if (gameOverShown) return;
   gameOverShown = true;
+  clearSave();        // une partie perdue ne se reprend pas
   gameState = 'menu'; // stoppe le jeu
   if (document.pointerLockElement) document.exitPointerLock();
   goTimeEl.textContent = 'Survécu : ' + formatTime(survivalTime);
@@ -1555,40 +1731,37 @@ function resumeGame() {
   if (!isMobile) renderer.domElement.requestPointerLock();
 }
 
+function resetMonster() {
+  monsterDead = false; monsterRespawnTimer = 0;
+  monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
+  monster.visible = true; monsterPath = []; monsterPathTimer = 0;
+  monsterState = 'wander'; monsterHitCd = 0; monsterLoseTimer = 0;
+  monsterStateTimer = 0; monsterIdle = 0; lastHitTime = -99;
+}
+
 function resetGame() {
   hp = 100; sanity = 100; stamina = 100; hunger = 100;
   survivalTime = 0; gameOverShown = false;
   scene.fog.color.setHex(0x1a1600);
 
-  // Reset monstre
-  monsterDead = false; monsterRespawnTimer = 0;
-  monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
-  monster.visible = true; monsterPath = []; monsterPathTimer = 0;
-  monsterState = 'wander'; monsterHitCd = 0; monsterLoseTimer = 0; lastHitTime = -99;
-  monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
+  // Nouveau labyrinthe, niveau 0 (caisses, sortie et monstre régénérés)
+  buildWorld(0);
+  resetMonster();
 
   // Reset position joueur
   camera.position.set(SC*CELL, 1.7, SR*CELL);
   yaw = 0; pitch = 0;
+  explored.fill(0);
 
   // Vider inventaire
   for (let i=0;i<invHotbar.length;i++) invHotbar[i]=null;
   for (let i=0;i<invBp.length;i++) invBp[i]=null;
 
-  // Supprimer items au sol
-  for (const gi of groundItems) scene.remove(gi.mesh);
-  groundItems.length = 0;
-
-  // Remettre les caisses à neuf
-  for (const cd of crateData) {
-    cd.open = false;
-    setCrateOpen(cd, false);
-    cd.mesh.visible = true;
-  }
-
+  refreshLevelUI();
   renderAllSlots();
   updateUseButton();
   btnResume.style.display = 'none';
+  updateMenuButtons();
 }
 
 document.getElementById('go-retry').addEventListener('click', () => {
@@ -1754,6 +1927,7 @@ const ITEM_ICONS = {
   backshroom: `<svg viewBox="0 0 32 32"><rect x="13" y="16" width="6" height="11" rx="2" fill="#e8dcc0"/><path d="M4 17a12 10 0 0 1 24 0z" fill="#7a4f8f"/><circle cx="11" cy="12" r="1.8" fill="#f4f0e8"/><circle cx="18" cy="10" r="1.4" fill="#f4f0e8"/><circle cx="22" cy="14" r="1.3" fill="#f4f0e8"/></svg>`,
   flashlight: `<svg viewBox="0 0 32 32"><rect x="12" y="13" width="8" height="15" rx="1.5" fill="#2b2b30"/><rect x="12" y="19" width="8" height="3" fill="#f0b020"/><rect x="10" y="6" width="12" height="7" rx="1.5" fill="#222226"/><rect x="11" y="3" width="10" height="3" rx="1" fill="#fff6c0"/></svg>`,
   medkit: `<svg viewBox="0 0 32 32"><rect x="4" y="8" width="24" height="18" rx="2" fill="#f2f2f2"/><rect x="13" y="11" width="6" height="12" fill="#d02020"/><rect x="10" y="14" width="12" height="6" fill="#d02020"/></svg>`,
+  note: `<svg viewBox="0 0 32 32"><rect x="7" y="3" width="18" height="26" rx="1.5" fill="#efe6c8"/><path d="M11 9h10M11 13h10M11 17h10M11 21h6" stroke="#6b5a30" stroke-width="1.6" stroke-linecap="round"/></svg>`,
   battery: `<svg viewBox="0 0 32 32"><rect x="10" y="7" width="12" height="20" rx="2" fill="#2fbf5a"/><rect x="13" y="4" width="6" height="3" rx="0.5" fill="#cccccc"/><path d="M16 11v8M12 15h8" stroke="#f4f4f4" stroke-width="2"/></svg>`,
 };
 
@@ -1793,20 +1967,28 @@ const ITEM_DEFS = {
       f.battery = 100; return true;
     }
   },
+  note: {
+    id: 'note', name: 'Note', icon: ITEM_ICONS.note,
+    desc: 'Feuille couverte d’écriture. Utiliser (R) pour la lire.',
+    use() { openNote(this.noteIdx); return false; }   // la note n'est pas consommée
+  },
 };
 
-function makeItem(id) {
+function makeItem(id, extra) {
   const def = ITEM_DEFS[id];
   if (!def) return null;
   // Copie manuelle pour éviter les problèmes de spread sur méthodes
-  return {
+  const item = {
     id: def.id,
     name: def.name,
     desc: def.desc,
     icon: def.icon,
     use: def.use,
     battery: def.battery !== undefined ? def.battery : undefined,
+    noteIdx: extra && extra.noteIdx !== undefined ? extra.noteIdx : undefined,
   };
+  if (extra && extra.battery !== undefined && item.battery !== undefined) item.battery = extra.battery;
+  return item;
 }
 
 // ═══════════════════════════════════════════════
@@ -1832,6 +2014,7 @@ function renderSlot(el, item) {
     const bar = document.createElement('div'); bar.className = 'item-bar';
     const fill = document.createElement('div'); fill.className = 'item-bar-fill';
     fill.style.width = (item.battery !== undefined ? item.battery : 100) + '%';
+    if (item.battery !== undefined && item.battery < 20) fill.style.background = '#c83030';
     bar.appendChild(fill); div.appendChild(bar);
   }
   el.appendChild(div);
@@ -1979,22 +2162,11 @@ function setCrateOpen(cd, open) {
   u.lidMat.color.setHex(tint);
 }
 
-// Spawn caisses dans des cellules libres
-const CRATE_COUNT = 18;
-const crateData = []; // { mesh, r, c, open:false }
-const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight','medkit','battery'];
 
-for (let i = 0; i < CRATE_COUNT; i++) {
-  let r, c, tries = 0;
-  do { r = 1+Math.floor(Math.random()*(ROWS-2)); c = 1+Math.floor(Math.random()*(COLS-2)); tries++; }
-  while ((grid[r][c] !== 0 || (Math.abs(r-SR)<3 && Math.abs(c-SC)<3)) && tries < 200);
-  if (grid[r][c] !== 0) continue;
-  const mesh = buildCrate();
-  mesh.position.set(c*CELL, 0, r*CELL);
-  mesh.rotation.y = Math.floor(Math.random()*4) * Math.PI / 2;
-  scene.add(mesh);
-  crateData.push({ mesh, r, c, open: false });
-}
+// Caisses du niveau courant (placées par placeCrates dans buildWorld)
+const CRATE_COUNT = 18;
+const crateData = []; // { mesh, r, c, open, rot }
+const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight','medkit','battery','note'];
 
 // ── Objets : modèles 3D centrés sur l'origine (hauteur ≈ 0.3) ──
 function buildWater() {
@@ -2060,21 +2232,31 @@ function buildBattery() {
   return g;
 }
 
+function buildNote() {
+  const g = new THREE.Group();
+  addPart(g, boxG(0.16, 0.01, 0.22), lam(0xefe6c8), 0, 0, 0);                // feuille
+  for (let i = 0; i < 4; i++)                                                  // lignes d'écriture
+    addPart(g, boxG(i === 3 ? 0.07 : 0.11, 0.012, 0.012), lam(0x6b5a30), -0.01, 0.007, -0.07 + i * 0.045);
+  return g;
+}
+
 const ITEM_BUILDERS = {
   almond_water: buildWater, energy_bar: buildEnergyBar, backshroom: buildBackshroom,
-  flashlight: buildFlashlight, medkit: buildMedkit, battery: buildBattery,
+  flashlight: buildFlashlight, medkit: buildMedkit, battery: buildBattery, note: buildNote,
 };
 
 // Items au sol
 const groundItems = []; // { mesh, item, x, z }
 
 // inside = true : l'objet est posé au fond de la caisse (pas de flottement)
-function spawnGroundItem(itemId, x, z, inside = false) {
-  const item = makeItem(itemId);
+function spawnGroundItem(itemId, x, z, inside = false, extra = null, exact = false) {
+  const item = makeItem(itemId, extra);
   const build = ITEM_BUILDERS[itemId] || buildBattery;
   const mesh = build();
   let px, pz, py;
-  if (inside) {
+  if (exact) {                       // position exacte (restauration de sauvegarde)
+    px = x; pz = z; py = inside ? CRATE_T + 0.2 : 0.175;
+  } else if (inside) {
     px = x + (Math.random() - 0.5) * 0.5;
     pz = z + (Math.random() - 0.5) * 0.5;
     py = CRATE_T + 0.2;
@@ -2086,12 +2268,13 @@ function spawnGroundItem(itemId, x, z, inside = false) {
   mesh.position.set(px, py, pz);
   scene.add(mesh);
   groundItems.push({ mesh, item, x: px, z: pz, inCrate: inside, baseY: py });
+  return groundItems[groundItems.length - 1];
 }
 
 // ── Prompt / bouton mobile ──
 const pickupPrompt = document.getElementById('pickup-prompt');
 const btnPickup    = document.getElementById('btn-pickup');
-let nearCrate = null, nearItem = null;
+let nearCrate = null, nearItem = null, nearExit = false;
 
 if (isMobile) btnPickup.style.display = 'none'; // géré dynamiquement
 
@@ -2107,12 +2290,17 @@ function interact() {
   } else if (nearCrate && !nearCrate.open) {
     nearCrate.open = true;
     setCrateOpen(nearCrate, true);
+    const cx = nearCrate.mesh.position.x, cz = nearCrate.mesh.position.z;
+    playSpatialNoise(cx, cz, { dur: 0.9, type: 'bandpass', freq: 700, freqEnd: 240, q: 4, gain: 0.35 }); // grincement du couvercle
     // Drop 1–3 items aléatoires
     const n = 1 + Math.floor(Math.random()*3);
     for (let i=0;i<n;i++) {
       const id = CRATE_LOOT[Math.floor(Math.random()*CRATE_LOOT.length)];
-      spawnGroundItem(id, nearCrate.mesh.position.x, nearCrate.mesh.position.z, true);
+      const extra = id === 'note' ? { noteIdx: Math.floor(Math.random() * NOTES.length) } : null;
+      spawnGroundItem(id, cx, cz, true, extra);
     }
+  } else if (nearExit) {
+    descendLevel();
   }
 }
 
@@ -2226,11 +2414,7 @@ function dropItemToGround(src) {
   // Spawner au sol devant le joueur
   const dropX = camera.position.x - Math.sin(yaw) * 1.2;
   const dropZ = camera.position.z - Math.cos(yaw) * 1.2;
-  spawnGroundItem(item.id, dropX, dropZ);
-  // Si flashlight, copier la batterie restante sur l'item au sol
-  if (item.id === 'flashlight') {
-    groundItems[groundItems.length - 1].item.battery = item.battery;
-  }
+  spawnGroundItem(item.id, dropX, dropZ, false, { battery: item.battery, noteIdx: item.noteIdx });
   setDragItem(src, null);
   dragSrc = null;
   renderAllSlots();
@@ -2257,13 +2441,14 @@ bpSlots.forEach((el, i) => setupDragSlot(el, 'bp', i));
 
 // ── Info-bulle au survol des emplacements ──
 const itemTipEl = document.getElementById('item-tip');
+let tipHideTimer = 0;
 
 function slotItem(el) {
   return el.classList.contains('hotbar-slot') ? invHotbar[+el.dataset.slot] : invBp[+el.dataset.bp];
 }
 function fillItemTip(item) {
   let extra = '';
-  if (item.id === 'flashlight') extra = 'Batterie : ' + Math.ceil(item.battery) + '%';
+  if (item.id === 'flashlight') extra = 'Batterie : ' + Math.ceil(item.battery) + '%' + (item.battery < 20 ? ' (faible)' : '');
   itemTipEl.innerHTML =
     '<div class="tip-name"></div><div class="tip-desc"></div>' + (extra ? '<div class="tip-extra"></div>' : '');
   itemTipEl.querySelector('.tip-name').textContent = item.name;
@@ -2281,6 +2466,7 @@ function hideItemTip() { itemTipEl.style.display = 'none'; }
 
 [...hotbarSlots, ...bpSlots].forEach(el => {
   el.addEventListener('pointerenter', e => {
+    clearTimeout(tipHideTimer);
     const item = slotItem(el);
     if (!item) return hideItemTip();
     fillItemTip(item);
@@ -2294,7 +2480,11 @@ function hideItemTip() { itemTipEl.style.display = 'none'; }
     fillItemTip(item);
     placeItemTip(e);
   });
-  el.addEventListener('pointerleave', hideItemTip);
+  el.addEventListener('pointerleave', e => {
+    // Tactile : la description reste affichée un moment après le relâchement
+    if (e.pointerType === 'touch') { clearTimeout(tipHideTimer); tipHideTimer = setTimeout(hideItemTip, 2500); }
+    else hideItemTip();
+  });
 });
 
 // ── Flashlight — lumière 3D portée ──
@@ -2308,7 +2498,10 @@ let flashShown = -1;
 function updateFlashlight(dt) {
   const item = invHotbar[hotbarSelected];
   if (item && item.id === 'flashlight' && item.battery > 0) {
-    flashlightLight.intensity = 2.6;
+    // Pile faible (<20%) : la lampe vacille
+    flashlightLight.intensity = item.battery < 20
+      ? (Math.random() < 0.12 ? 0 : 2.6 * (0.45 + Math.random() * 0.55))
+      : 2.6;
     // Source légèrement sous les yeux, cible placée devant la caméra
     flashlightLight.position.copy(camera.position);
     flashlightLight.position.y -= 0.2;
@@ -2404,9 +2597,7 @@ function nearestFreeCell(r0, c0) {
       }
   return [r0, c0];
 }
-const _mSpawn = nearestFreeCell(ROWS - 4, COLS - 4);
-const mSpawnR = _mSpawn[0], mSpawnC = _mSpawn[1];
-monster.position.set(mSpawnC * CELL, 0, mSpawnR * CELL);
+let mSpawnR = 0, mSpawnC = 0;   // case de spawn, recalculée par buildWorld
 scene.add(monster);
 
 // ═══════════════════════════════════════════════
@@ -2415,6 +2606,8 @@ scene.add(monster);
 const MON_R              = 0.35;  // rayon du monstre pour les collisions
 const MON_SPEED_WANDER   = 1.6;
 const MON_SPEED_CHASE    = 3.3;
+let monsterChaseSpeed    = MON_SPEED_CHASE;   // ajustée par niveau
+let monsterStepNo        = 0;                 // compteur de pas (sons)
 const MONSTER_HEAR_STILL = 9;     // distance de détection en marchant
 const MONSTER_HEAR_RUN   = 20;    // distance de détection en courant
 const MONSTER_LOSE_DIST  = 30;    // au-delà, le monstre finit par perdre la trace
@@ -2506,7 +2699,7 @@ function findCellPath(sr, sc, gr, gc) {
 // Le corps du monstre (carré ±MON_R) ne touche aucun mur
 function canPass(x, z) {
   const R = MON_R;
-  return !isWall(x - R, z - R) && !isWall(x + R, z - R) && !isWall(x - R, z + R) && !isWall(x + R, z + R);
+  return !isWall(x - R, z - R) && !isWall(x + R, z - R) && !isWall(x - R, z + R) && !isWall(x + R, z + R) && !crateBlocks(x, z, R);
 }
 // Trajet en ligne droite libre entre deux points
 function lineFree(x0, z0, x1, z1) {
@@ -2620,7 +2813,7 @@ function updateMonster(dt) {
     moveTo(mx + (mx - px) / d * 3, mz + (mz - pz) / d * 3, 2.2 * dt);
     moving = true;
   } else if (monsterState === 'chase') {
-    const speed = MON_SPEED_CHASE * dt;
+    const speed = monsterChaseSpeed * dt;
     if (lineFree(mx, mz, px, pz)) {
       monsterPath = [];                       // il me voit : il va droit sur moi
       moveTo(px, pz, speed);
@@ -2649,6 +2842,13 @@ function updateMonster(dt) {
   if (moving) {
     monsterWalkTime += dt * (monsterState === 'chase' ? 6 : 3);
     monster.rotation.z = Math.sin(monsterWalkTime) * 0.07;
+    // Pas audibles, positionnés dans l'espace stéréo
+    const stepNo = Math.floor(monsterWalkTime / Math.PI);
+    if (stepNo !== monsterStepNo) {
+      monsterStepNo = stepNo;
+      playSpatialNoise(monster.position.x, monster.position.z,
+        { dur: 0.14, type: 'lowpass', freq: 380, q: 0.7, gain: monsterState === 'chase' ? 0.6 : 0.3 });
+    }
   }
 
   // ── Contact : dégâts + recul ──
@@ -2738,12 +2938,231 @@ function playTone(type, f0, f1, dur, vol) {
   o.start(t); o.stop(t + dur + 0.05);
 }
 
+// ═══════════════════════════════════════════════
+//  NOTES — textes trouvés dans le décor (objet « Note »)
+// ═══════════════════════════════════════════════
+const NOTES = [
+  'Jour 3. Le couloir tourne toujours à gauche. J’ai compté 212 pas avant le premier mur. Recompté : 209. Je ne sais plus quoi croire.',
+  'Si vous entendez des pas qui s’éloignent, ne les suivez pas. Ils ne s’éloignent pas vraiment.',
+  'La lumière clignote au rythme de mon cœur. J’ai fini par ne plus le remarquer. C’est peut-être ça le problème.',
+  'Le plan que j’ai dessiné ne correspond à rien. Les murs bougent quand je ferme les yeux. Je garde les yeux ouverts.',
+  'Les caisses contiennent toujours de l’eau et de quoi manger. Quelqu’un les remplit. Ou quelque chose.',
+  'Par une fissure dans une cloison, j’ai vu une porte au sol, au fond d’un couloir sombre. Elle s’ouvre vers le haut.',
+  'Ne jamais courir dans le noir. Le monstre entend mieux quand on court, et il finit toujours par trouver.',
+  'Plus on descend, plus la moquette est humide et l’air lourd. Une lueur violette au fond d’un couloir indique le passage.',
+  'Ma lampe faiblit. Chaque pile trouvée me donne une minute de plus. Je ne compte plus les minutes.',
+];
+
+const noteOverlayEl = document.getElementById('note-overlay');
+const noteTextEl    = document.getElementById('note-text');
+
+function openNote(idx) {
+  if (gameState === 'note') return;
+  gameState = 'note';                       // gèle le jeu pendant la lecture
+  noteTextEl.textContent = NOTES[idx] || '';
+  noteOverlayEl.style.display = 'flex';
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeNote() {
+  if (gameState !== 'note') return;
+  noteOverlayEl.style.display = 'none';
+  gameState = 'playing';
+  if (!isMobile) renderer.domElement.requestPointerLock();
+}
+noteOverlayEl.addEventListener('click', closeNote);
+
+// ═══════════════════════════════════════════════
+//  NIVEAUX — passage vers le niveau suivant
+// ═══════════════════════════════════════════════
+const levelCardEl = document.getElementById('level-card');
+
+function refreshLevelUI() {
+  hud.innerHTML = 'LEVEL ' + level + ' &nbsp;·&nbsp; NE PAS REGARDER DERRIÈRE VOUS';
+}
+function showLevelCard(n) {
+  levelCardEl.textContent = 'NIVEAU ' + n;
+  levelCardEl.classList.remove('show');
+  void levelCardEl.offsetWidth;   // relance l'animation
+  levelCardEl.classList.add('show');
+}
+
+function descendLevel() {
+  const next = level + 1;
+  buildWorld(next);
+  resetMonster();
+  camera.position.set(SC*CELL, 1.7, SR*CELL);
+  explored.fill(0);
+  refreshLevelUI();
+  showLevelCard(next);
+  saveGame();
+}
+
+// ═══════════════════════════════════════════════
+//  COLLISION — caisses (joueur et monstre)
+// ═══════════════════════════════════════════════
+const CRATE_HALF = CRATE_S / 2;
+function crateBlocks(x, z, rad = 0.3) {
+  for (const cd of crateData) {
+    if (Math.abs(x - cd.mesh.position.x) < CRATE_HALF + rad &&
+        Math.abs(z - cd.mesh.position.z) < CRATE_HALF + rad) return true;
+  }
+  return false;
+}
+
+// ═══════════════════════════════════════════════
+//  SON SPATIAL — position stéréo et volume selon la distance
+// ═══════════════════════════════════════════════
+function spatialParams(x, z) {
+  const dx = x - camera.position.x, dz = z - camera.position.z;
+  const d = Math.hypot(dx, dz);
+  const rx = Math.cos(yaw), rz = -Math.sin(yaw);     // vecteur « droite » du joueur
+  const side = d > 0.01 ? (dx * rx + dz * rz) / d : 0;
+  return { pan: Math.max(-1, Math.min(1, side)), vol: Math.max(0, 1 - d / 22) };
+}
+
+function playSpatialNoise(x, z, o) {
+  if (!audioCtx) return;
+  const { pan, vol } = spatialParams(x, z);
+  if (vol <= 0.01) return;
+  const t = audioCtx.currentTime;
+  const len = Math.ceil(audioCtx.sampleRate * o.dur);
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const f = audioCtx.createBiquadFilter();
+  f.type = o.type || 'bandpass';
+  f.frequency.setValueAtTime(o.freq, t);
+  if (o.freqEnd) f.frequency.exponentialRampToValueAtTime(o.freqEnd, t + o.dur);
+  f.Q.value = o.q || 1;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(o.gain * vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + o.dur);
+  const p = audioCtx.createStereoPanner();
+  p.pan.value = pan;
+  src.connect(f); f.connect(g); g.connect(p); p.connect(audioCtx.destination);
+  src.start(t); src.stop(t + o.dur);
+}
+
+// ═══════════════════════════════════════════════
+//  SAUVEGARDE — localStorage (niveau, décor, inventaire, stats)
+// ═══════════════════════════════════════════════
+const SAVE_KEY = 'bk_save';
+const btnContinue = document.getElementById('btn-continue');
+const btnQuality  = document.getElementById('btn-quality');
+const pickupLabel = document.getElementById('pickup-label');
+let saveTimer = 10;
+
+function hasSave() {
+  try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+}
+function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  updateMenuButtons();
+}
+function serItem(item) {
+  return item ? { id: item.id, battery: item.battery, noteIdx: item.noteIdx } : null;
+}
+function deserItem(d) {
+  return d ? makeItem(d.id, d) : null;
+}
+
+function saveGame() {
+  if (!exitCell || survivalTime <= 0 || gameOverShown) return;
+  const data = {
+    v: 1,
+    level,
+    grid: grid.map(row => row.join('')),
+    exit: { r: exitCell.r, c: exitCell.c },
+    player: { x: camera.position.x, z: camera.position.z, yaw },
+    stats: { hp, sanity, stamina, hunger, survivalTime },
+    crates: crateData.map(cd => ({ r: cd.r, c: cd.c, rot: cd.mesh.rotation.y, open: cd.open })),
+    ground: groundItems.map(gi => ({ id: gi.item.id, x: gi.x, z: gi.z, inCrate: gi.inCrate,
+                                     battery: gi.item.battery, noteIdx: gi.item.noteIdx })),
+    hot: invHotbar.map(serItem),
+    bp: invBp.map(serItem),
+    hotSel: hotbarSelected,
+    monster: { x: monster.position.x, z: monster.position.z },
+    explored: Array.from(explored).join(''),
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) {}
+  updateMenuButtons();
+}
+
+function loadGame() {
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { data = null; }
+  if (!data || data.v !== 1) { clearSave(); return false; }
+
+  buildWorld(data.level, data);
+  hp = data.stats.hp; sanity = data.stats.sanity; stamina = data.stats.stamina;
+  hunger = data.stats.hunger; survivalTime = data.stats.survivalTime;
+  gameOverShown = false; lastHitTime = -99;
+
+  for (const g of data.ground) {
+    spawnGroundItem(g.id, g.x, g.z, g.inCrate, { battery: g.battery, noteIdx: g.noteIdx }, true);
+  }
+  for (let i = 0; i < invHotbar.length; i++) invHotbar[i] = deserItem(data.hot[i]);
+  for (let i = 0; i < invBp.length; i++) invBp[i] = deserItem(data.bp[i]);
+  selectHotbar(data.hotSel || 0);
+
+  camera.position.set(data.player.x, 1.7, data.player.z);
+  yaw = data.player.yaw; pitch = 0;
+  resetMonster();
+  monster.position.set(data.monster.x, 0, data.monster.z);
+
+  for (let i = 0; i < explored.length; i++) explored[i] = data.explored && data.explored[i] === '1' ? 1 : 0;
+  renderAllSlots();
+  updateUseButton();
+  refreshLevelUI();
+  return true;
+}
+
+function continueGame() {
+  if (!loadGame()) return;
+  gameoverEl.style.display = 'none';
+  enterGame();
+}
+btnContinue.addEventListener('click', e => { e.stopPropagation(); continueGame(); });
+
+// Bouton « Continuer » visible seulement hors partie en cours et s'il existe une sauvegarde
+function updateMenuButtons() {
+  const inRun = survivalTime > 0 && !gameOverShown;
+  btnContinue.style.display = (!inRun && hasSave()) ? 'inline-block' : 'none';
+  btnQuality.textContent = 'GRAPHISMES : ' + (quality === 'high' ? 'HAUTS' : 'BAS');
+}
+
+// ═══════════════════════════════════════════════
+//  QUALITÉ GRAPHIQUE — résolution, nombre de lampes, distance d'affichage
+// ═══════════════════════════════════════════════
+let quality = 'high';
+try { quality = localStorage.getItem('bk_quality') || (isMobile ? 'low' : 'high'); }
+catch (e) { quality = isMobile ? 'low' : 'high'; }
+
+function applyQuality() {
+  const high = quality === 'high';
+  renderer.setPixelRatio(high ? Math.min(devicePixelRatio, 2) : 1);
+  renderer.setSize(innerWidth, innerHeight);
+  MAX_LIGHTS = high ? 8 : 4;
+  camera.far = high ? 80 : 40;
+  camera.updateProjectionMatrix();
+  updateMenuButtons();
+}
+
+btnQuality.addEventListener('click', e => {
+  e.stopPropagation();
+  quality = quality === 'high' ? 'low' : 'high';
+  try { localStorage.setItem('bk_quality', quality); } catch (err) {}
+  applyQuality();
+});
+
 let last=0;
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  if (paused || gameState === 'menu' || gameOverShown) {
+  if (paused || gameState === 'menu' || gameState === 'note' || gameOverShown) {
     renderer.render(scene, camera); // continuer à render mais pas update
     return;
   }
@@ -2754,6 +3173,8 @@ function loop(now) {
   updateMonster(dt);
   updateLights();
   exploreAround();
+  saveTimer -= dt;
+  if (saveTimer <= 0) { saveTimer = 10; saveGame(); }   // sauvegarde automatique toutes les 10 s
   mmTimer -= dt;
   if (minimapOn && mmTimer <= 0) { mmTimer = 0.12; drawMinimap(); }
   hitFlash = Math.max(0, hitFlash - dt * 2.5);
@@ -2782,10 +3203,16 @@ function loop(now) {
     }
   }
 
-  const showPrompt = nearItem || nearCrate;
+  nearExit = !nearItem && !nearCrate && Math.hypot(exitCell.x - px, exitCell.z - pz) < 2.2;
+
+  const showPrompt = nearItem || nearCrate || nearExit;
   if (gameState === 'playing') {
-    if (nearItem) pickupPrompt.textContent = '[ E ] Ramasser ' + nearItem.item.name;
-    else if (nearCrate) pickupPrompt.textContent = '[ E ] Ouvrir la caisse';
+    let label = '';
+    if (nearItem) label = 'Ramasser ' + nearItem.item.name;
+    else if (nearCrate) label = 'Ouvrir la caisse';
+    else if (nearExit) label = 'Traverser le passage (niveau ' + (level + 1) + ')';
+    pickupPrompt.textContent = '[ E ] ' + label;
+    pickupLabel.textContent = label;
     pickupPrompt.style.display = showPrompt ? 'block' : 'none';
     if (isMobile) btnPickup.style.display = showPrompt ? 'flex' : 'none';
   } else {
@@ -2795,6 +3222,11 @@ function loop(now) {
 
   renderer.render(scene, camera);
 }
+buildWorld(0);
+resetMonster();
+applyQuality();
+refreshLevelUI();
+updateMenuButtons();
 requestAnimationFrame(loop);
 </script>
 </body>
