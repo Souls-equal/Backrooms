@@ -389,13 +389,25 @@
       color: rgba(220,60,60,1);
       background: rgba(100,0,0,0.3);
     }
+    /* ── CARTE ── */
+    #minimap {
+      position: fixed; bottom: 20px; left: 20px;
+      width: 168px; height: 168px;
+      border: 1px solid rgba(180,160,48,0.4); border-radius: 6px;
+      display: none; z-index: 6; pointer-events: none; opacity: 0.9;
+    }
+    /* ── FLASH DE DÉGÂTS ── */
+    #hit-flash {
+      position: fixed; inset: 0; pointer-events: none; z-index: 9; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(200,0,0,0) 45%, rgba(200,0,0,0.65) 100%);
+    }
   </style>
 <body>
 
 <div id="overlay">
   <h1>Backrooms</h1>
   <div class="sub">LEVEL 0</div>
-  <div class="hint">CLIC POUR ENTRER &nbsp;·&nbsp; ZQSD — marcher &nbsp;·&nbsp; SHIFT — courir &nbsp;·&nbsp; ESC — sortir</div>
+  <div class="hint">CLIC POUR ENTRER &nbsp;·&nbsp; ZQSD — marcher &nbsp;·&nbsp; SHIFT — courir &nbsp;·&nbsp; R — utiliser &nbsp;·&nbsp; TAB — sac &nbsp;·&nbsp; M — carte &nbsp;·&nbsp; ESC — menu</div>
   <button id="btn-resume" style="display:none;margin-top:8px;background:none;border:1px solid rgba(180,160,48,0.5);color:#b8a030;padding:8px 24px;border-radius:6px;font-family:monospace;font-size:11px;letter-spacing:3px;cursor:pointer;">REPRENDRE</button>
 </div>
 <div id="hud">LEVEL 0 &nbsp;·&nbsp; NE PAS REGARDER DERRIÈRE VOUS</div>
@@ -468,6 +480,8 @@
 <!-- Bouton ramasser mobile -->
 <div id="btn-pickup">&#x1F4E6;<br>Ramasser</div>
 
+<canvas id="minimap" width="168" height="168"></canvas>
+<div id="hit-flash"></div>
 <div id="mobile-ui">
   <div id="joystick-zone">
     <div id="joystick-base"></div>
@@ -646,7 +660,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111008);
 scene.fog = new THREE.FogExp2(0x1a1600, 0.055);
 
-const camera = new THREE.PerspectiveCamera(80, innerWidth/innerHeight, 0.05, 80);
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.05, 80);
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight;
@@ -980,6 +994,14 @@ for (let r=1; r<ROWS-1; r+=2) {
   }
 }
 
+const MAX_LIGHTS = 8;
+function cullLights() {
+  const px = camera.position.x, pz = camera.position.z;
+  const sorted = activeLights.map(l => ({ l, d: (l.light.position.x-px)**2 + (l.light.position.z-pz)**2 }))
+                             .sort((a, b) => a.d - b.d);
+  sorted.forEach((o, i) => { o.l.light.visible = i < MAX_LIGHTS; });
+}
+
 let flickerTick = 0;
 function updateLights() {
   flickerTick++;
@@ -1095,6 +1117,7 @@ const mobileUI  = document.getElementById('mobile-ui');
 const btnMenu   = document.getElementById('btn-menu');
 
 function showMenu() {
+  overlay.querySelector('.sub').textContent = 'LEVEL 0' + (bestTime > 0 ? '  ·  RECORD ' + formatTime(bestTime) : '');
   overlay.style.display  = 'flex';
   hud.style.display      = 'none';
   crosshair.style.display= 'none';
@@ -1104,6 +1127,7 @@ function showMenu() {
   hotbarEl.style.display = 'none';
   btnBackpack.style.display = 'none';
   btnUse.style.display   = 'none';
+  mmCanvas.style.display = 'none';
   timerEl.style.display  = 'none';
   dropZone.style.display = 'none';
   closeBackpackUI();
@@ -1119,6 +1143,7 @@ function hideMenu() {
   btnMenu.style.display  = 'flex';
   btnBackpack.style.display = 'flex';
   if (isMobile) { btnUse.style.display = 'flex'; updateUseButton(); }
+  mmCanvas.style.display = minimapOn ? 'block' : 'none';
 }
 
 btnMenu.addEventListener('click', () => {
@@ -1168,7 +1193,6 @@ function closeBackpackUI() {
   gameState = 'playing';
   backpackOverlay.style.display = 'none';
   hotbarEl.classList.remove('bp-open');
-  if (dragSrc) dropItemToGround(dragSrc);
   dragSrc = null;
   document.querySelectorAll('.hotbar-slot,.bp-slot').forEach(s => s.classList.remove('dragging'));
   if (!isMobile) renderer.domElement.requestPointerLock();
@@ -1220,12 +1244,6 @@ if (isMobile) {
     yaw   -= e.movementX * 0.0022;
     pitch -= e.movementY * 0.0022;
     pitch  = Math.max(-1.3, Math.min(1.3, pitch));
-  });
-  // Re-lock si le lock est perdu alors qu'on est en jeu
-  document.addEventListener('pointerlockchange', () => {
-    if (!document.pointerLockElement && gameState === 'playing') {
-      goToMenu();
-    }
   });
 }
 
@@ -1474,6 +1492,8 @@ let stamina = 100;
 let hunger  = 100;
 let survivalTime = 0;
 let gameOverShown = false;
+let bestTime = (() => { try { return Number(localStorage.getItem('bk_best')) || 0; } catch (e) { return 0; } })();
+let lastHitTime = -99;
 
 const barHp      = document.getElementById('bar-hp-fill');
 const barMental  = document.getElementById('bar-mental-fill');
@@ -1498,7 +1518,11 @@ function triggerGameOver(cause) {
   gameState = 'menu'; // stoppe le jeu
   if (document.pointerLockElement) document.exitPointerLock();
   goTimeEl.textContent = 'Survécu : ' + formatTime(survivalTime);
-  goCauseEl.textContent = cause;
+  if (survivalTime > bestTime) {
+    bestTime = survivalTime;
+    try { localStorage.setItem('bk_best', String(bestTime)); } catch (e) {}
+  }
+  goCauseEl.textContent = cause + '  ·  RECORD ' + formatTime(bestTime);
   gameoverEl.style.display = 'flex';
 }
 
@@ -1523,6 +1547,8 @@ function resetGame() {
   monsterDead = false; monsterRespawnTimer = 0;
   monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
   monster.visible = true; monsterPath = []; monsterPathTimer = 0;
+  monsterState = 'wander'; monsterHitCd = 0; monsterLoseTimer = 0; lastHitTime = -99;
+  monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
 
   // Reset position joueur
   camera.position.set(SC*CELL, 1.7, SR*CELL);
@@ -1695,6 +1721,7 @@ function updateStats(dt, moving, sprinting) {
     let cause = 'Cause inconnue';
     if (sanity <= 0)      cause = 'Tu as sombré dans la folie.';
     else if (hunger <= 0) cause = 'Tu es mort de faim.';
+    else if (survivalTime - lastHitTime < 4) cause = 'Le Rôdeur t\'a rattrapé.';
     else                  cause = 'Tu as été rattrapé par les ténèbres.';
     triggerGameOver(cause);
   }
@@ -1720,6 +1747,18 @@ const ITEM_DEFS = {
     id: 'flashlight', name: 'Lampe torche', icon: '🔦',
     battery: 100, // 0–100
     use(inv) { return false; } // utilisée passivement
+  },
+  medkit: {
+    id: 'medkit', name: 'Trousse de soin', icon: '🩹',
+    use(inv) { hp = Math.min(100, hp + 45); return true; }
+  },
+  battery: {
+    id: 'battery', name: 'Pile', icon: '🔋',
+    use(inv) {
+      const f = [...invHotbar, ...invBp].find(i => i && i.id === 'flashlight');
+      if (!f) return false;
+      f.battery = 100; return true;
+    }
   },
 };
 
@@ -1814,9 +1853,7 @@ function useSelectedItem() {
 }
 
 // Desktop: clic gauche quand en jeu (pas sur UI)
-renderer.domElement.addEventListener('click', () => {
-  if (gameState === 'playing') useSelectedItem();
-});
+// Desktop : R ou F pour utiliser l'objet (le clic ne consomme plus rien par accident)
 // Mobile: bouton dédié
 btnUse.addEventListener('click', useSelectedItem);
 btnUse.addEventListener('touchend', e => { e.preventDefault(); useSelectedItem(); }, { passive: false });
@@ -1844,7 +1881,7 @@ const crateMat = new THREE.MeshLambertMaterial({ map: crateTex });
 // Spawn caisses dans des cellules libres
 const CRATE_COUNT = 18;
 const crateData = []; // { mesh, row, col, open:false }
-const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight'];
+const CRATE_LOOT = ['almond_water','energy_bar','backshroom','flashlight','medkit','battery'];
 
 for (let i = 0; i < CRATE_COUNT; i++) {
   let r, c, tries = 0;
@@ -1864,7 +1901,7 @@ const groundItemGeo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
 function spawnGroundItem(itemId, x, z) {
   const item = makeItem(itemId);
   // Petit cube coloré
-  const colors = { almond_water:0x4488ff, energy_bar:0xff8800, backshroom:0x884488, flashlight:0xffcc00 };
+  const colors = { almond_water:0x4488ff, energy_bar:0xff8800, backshroom:0x884488, flashlight:0xffcc00, medkit:0xff4040, battery:0x40ff80 };
   const col = colors[itemId] !== undefined ? colors[itemId] : 0xffffff;
   const mat = new THREE.MeshLambertMaterial({ color: col });
   const mesh = new THREE.Mesh(groundItemGeo, mat);
@@ -1887,6 +1924,7 @@ function interact() {
     if (idx !== -1) {
       const ok = addToInventory(nearItem.item);
       if (ok) { scene.remove(nearItem.mesh); groundItems.splice(idx, 1); }
+      else { pickupPrompt.textContent = 'Inventaire plein'; }
     }
     nearItem = null;
   } else if (nearCrate && !nearCrate.open) {
@@ -1905,6 +1943,11 @@ function interact() {
 // Touche E
 document.addEventListener('keydown', e => {
   if (e.code === 'KeyE' && gameState === 'playing') interact();
+  if ((e.code === 'KeyR' || e.code === 'KeyF') && gameState === 'playing') useSelectedItem();
+  if (e.code === 'KeyM' && gameState === 'playing') {
+    minimapOn = !minimapOn;
+    mmCanvas.style.display = minimapOn ? 'block' : 'none';
+  }
 });
 btnPickup.addEventListener('click', interact);
 btnPickup.addEventListener('touchend', e => { e.preventDefault(); interact(); }, { passive: false });
@@ -2040,14 +2083,16 @@ bpSlots.forEach((el, i) => setupDragSlot(el, 'bp', i));
 const flashlightLight = new THREE.PointLight(0xfff8e0, 0, 8);
 scene.add(flashlightLight);
 
+let flashShown = -1;
 function updateFlashlight(dt) {
   const item = invHotbar[hotbarSelected];
   if (item && item.id === 'flashlight' && item.battery > 0) {
     flashlightLight.intensity = 1.8;
     flashlightLight.position.copy(camera.position);
     item.battery = Math.max(0, item.battery - dt * (100/35)); // ~35 sec
-    if (item.battery <= 0) { invHotbar[hotbarSelected] = null; }
-    renderAllSlots();
+    const shown = Math.ceil(item.battery);
+    if (shown !== flashShown) { flashShown = shown; renderAllSlots(); }
+    if (item.battery <= 0) { invHotbar[hotbarSelected] = null; flashShown = -1; renderAllSlots(); }
   } else {
     flashlightLight.intensity = 0;
   }
@@ -2233,77 +2278,185 @@ function bfsSub(startSr, startSc, goalSr, goalSc) {
   return [];
 }
 
-// État monstre
-const MONSTER_SPEED   = 2.8;
-const MONSTER_REACH   = 0.9;
-const PATH_RECALC     = 1.2; // recalcul plus fréquent pour meilleure réactivité
-let monsterPath       = []; // [{x,z},...] positions monde
+// État monstre — 'wander' (erre), 'chase' (poursuite), 'stunned' (recul après un coup)
+const MONSTER_SPEED_WANDER = 1.6;
+const MONSTER_SPEED_CHASE  = 3.3;
+const MONSTER_HEAR_STILL   = 9;    // distance à laquelle le joueur est repéré en marchant
+const MONSTER_HEAR_RUN     = 20;   // distance à laquelle le joueur est repéré en courant
+const MONSTER_LOSE_DIST    = 30;   // au-delà, le monstre finit par perdre la trace
+const MONSTER_REACH        = 1.0;
+const MONSTER_DAMAGE       = 35;
+const PATH_RECALC          = 0.8;
+let monsterPath       = [];
 let monsterPathTimer  = 0;
-let monsterDead       = false;
+let monsterDead       = false;     // conservé pour compatibilité (plus de mort du monstre)
 let monsterRespawnTimer = 0;
 let monsterWalkTime   = 0;
+let monsterState      = 'wander';
+let monsterStateTimer = 0;
+let monsterHitCd      = 0;
+let monsterLoseTimer  = 0;
+let lastSprint        = false;
+
+function randomOpenCellWorld() {
+  for (let i = 0; i < 300; i++) {
+    const r = 1 + Math.floor(Math.random()*(ROWS-2));
+    const c = 1 + Math.floor(Math.random()*(COLS-2));
+    if (grid[r][c] === 0) return { x: c*CELL, z: r*CELL };
+  }
+  return null;
+}
+
+function monsterRepath(tx, tz) {
+  const ms = worldToSub(monster.position.x, monster.position.z);
+  const ps = worldToSub(tx, tz);
+  monsterPath = bfsSub(ms.sr, ms.sc, ps.sr, ps.sc);
+}
 
 function updateMonster(dt) {
-  if (monsterDead) {
-    monsterRespawnTimer -= dt;
-    if (monsterRespawnTimer <= 0) {
-      monsterDead = false;
-      monster.position.set(mSpawnC*CELL, 0, mSpawnR*CELL);
-      monster.visible = true;
-      monsterPath = [];
+  const mx = monster.position.x, mz = monster.position.z;
+  const px = camera.position.x,  pz = camera.position.z;
+  const dPlayer = Math.hypot(mx - px, mz - pz);
+  monsterHitCd = Math.max(0, monsterHitCd - dt);
+
+  // ── Transitions d'état ──
+  if (monsterState === 'stunned') {
+    monsterStateTimer -= dt;
+    if (monsterStateTimer <= 0) { monsterState = 'wander'; monsterPath = []; }
+  } else if (monsterState === 'wander') {
+    const hear = lastSprint ? MONSTER_HEAR_RUN : MONSTER_HEAR_STILL;
+    if (dPlayer < hear) {
+      monsterState = 'chase'; monsterLoseTimer = 0; monsterPath = []; monsterPathTimer = 0;
+      playTone('sawtooth', 90, 45, 0.9, 0.12); // grognement
     }
-    return;
+  } else if (monsterState === 'chase') {
+    if (dPlayer > MONSTER_LOSE_DIST) {
+      monsterLoseTimer += dt;
+      if (monsterLoseTimer > 4) { monsterState = 'wander'; monsterPath = []; }
+    } else monsterLoseTimer = 0;
   }
 
-  const mx = monster.position.x;
-  const mz = monster.position.z;
-  const px = camera.position.x;
-  const pz = camera.position.z;
-
-  // Recalcul BFS périodique
-  monsterPathTimer -= dt;
-  if (monsterPathTimer <= 0) {
-    monsterPathTimer = PATH_RECALC;
-    const ms = worldToSub(mx, mz);
-    const ps = worldToSub(px, pz);
-    monsterPath = bfsSub(ms.sr, ms.sc, ps.sr, ps.sc);
-  }
-
-  // Suivre le chemin fin
-  if (monsterPath.length > 0) {
-    const next = monsterPath[0];
-    const dx = next.x - mx;
-    const dz = next.z - mz;
-    const dist = Math.hypot(dx, dz);
-
-    if (dist < SUBCELL * 0.4) {
-      monsterPath.shift();
-    } else {
-      const step = MONSTER_SPEED * dt;
-      monster.position.x += (dx / dist) * step;
-      monster.position.z += (dz / dist) * step;
+  // ── Déplacement ──
+  if (monsterState === 'stunned') {
+    // Recule loin du joueur
+    const d = Math.max(0.001, dPlayer);
+    monster.position.x += ((mx - px) / d) * 2.2 * dt;
+    monster.position.z += ((mz - pz) / d) * 2.2 * dt;
+    monster.rotation.y = Math.atan2(px - mx, pz - mz);
+  } else {
+    const speed = monsterState === 'chase' ? MONSTER_SPEED_CHASE : MONSTER_SPEED_WANDER;
+    monsterPathTimer -= dt;
+    if (monsterPathTimer <= 0) {
+      monsterPathTimer = PATH_RECALC;
+      if (monsterState === 'chase') monsterRepath(px, pz);
+      else if (monsterPath.length === 0) {
+        const t = randomOpenCellWorld();
+        if (t) monsterRepath(t.x, t.z);
+      }
     }
-
-    monsterWalkTime += dt * 5;
-    monster.rotation.z = Math.sin(monsterWalkTime) * 0.07;
+    if (monsterPath.length > 0) {
+      const next = monsterPath[0];
+      const dx = next.x - mx, dz = next.z - mz;
+      const dist = Math.hypot(dx, dz);
+      if (dist < SUBCELL * 0.4) monsterPath.shift();
+      else {
+        const step = speed * dt;
+        monster.position.x += (dx / dist) * step;
+        monster.position.z += (dz / dist) * step;
+        monster.rotation.y = Math.atan2(dx, dz);
+      }
+      monsterWalkTime += dt * (speed > 2 ? 6 : 3);
+      monster.rotation.z = Math.sin(monsterWalkTime) * 0.07;
+    }
+    if (monsterState === 'chase' && dPlayer < 6) monster.rotation.y = Math.atan2(px - mx, pz - mz);
   }
 
-  // Toujours regarder le joueur (rotation Y)
-  const toDx = px - mx;
-  const toDz = pz - mz;
-  monster.rotation.y = Math.atan2(toDx, toDz);
-
-  // Contact joueur
-  const distToPlayer = Math.hypot(mx - px, mz - pz);
-  if (distToPlayer < MONSTER_REACH) {
-    hp = 0;
-    scene.fog.color.setRGB(0.4, 0, 0);
-    monsterDead = true;
-    monsterRespawnTimer = 20;
-    monster.visible = false;
+  // ── Contact : dégâts + recul ──
+  if (monsterState !== 'stunned' && dPlayer < MONSTER_REACH && monsterHitCd <= 0) {
+    hp = Math.max(0, hp - MONSTER_DAMAGE);
+    monsterHitCd = 1.5;
+    lastHitTime = survivalTime;
+    monsterState = 'stunned'; monsterStateTimer = 3; monsterPath = [];
+    hitFlash = 1;
+    playTone('square', 140, 40, 0.35, 0.2); // impact
   }
 }
 
+let hitFlash = 0;
+const hitFlashEl = document.getElementById('hit-flash');
+
+// ═══════════════════════════════════════════════
+//  CARTE — zones explorées autour du joueur
+// ═══════════════════════════════════════════════
+const mmCanvas = document.getElementById('minimap');
+const mmCtx    = mmCanvas.getContext('2d');
+const MM_RADIUS = 10;                                   // cellules visibles autour du joueur
+const MM_CELL   = mmCanvas.width / (MM_RADIUS * 2 + 1);
+const explored  = new Uint8Array(ROWS * COLS);
+let minimapOn = true, mmTimer = 0;
+
+function exploreAround() {
+  const pc = Math.round(camera.position.x / CELL), pr = Math.round(camera.position.z / CELL);
+  for (let dr = -3; dr <= 3; dr++) for (let dc = -3; dc <= 3; dc++) {
+    const r = pr + dr, c = pc + dc;
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) explored[r * COLS + c] = 1;
+  }
+}
+
+function drawMinimap() {
+  const W = mmCanvas.width, pc = Math.round(camera.position.x / CELL), pr = Math.round(camera.position.z / CELL);
+  mmCtx.fillStyle = 'rgba(0,0,0,0.7)';
+  mmCtx.fillRect(0, 0, W, W);
+  const px = (dc) => (dc + MM_RADIUS) * MM_CELL;
+  for (let dr = -MM_RADIUS; dr <= MM_RADIUS; dr++) for (let dc = -MM_RADIUS; dc <= MM_RADIUS; dc++) {
+    const r = pr + dr, c = pc + dc;
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS || !explored[r * COLS + c]) continue;
+    mmCtx.fillStyle = grid[r][c] === 1 ? '#8a6d10' : '#2a2508';
+    mmCtx.fillRect(px(dc), px(dr), MM_CELL, MM_CELL);
+  }
+  // Caisses non ouvertes
+  mmCtx.fillStyle = '#d8b050';
+  for (const cd of crateData) {
+    if (cd.open || !explored[cd.r * COLS + cd.c]) continue;
+    const dr = cd.r - pr, dc = cd.c - pc;
+    if (Math.abs(dr) > MM_RADIUS || Math.abs(dc) > MM_RADIUS) continue;
+    mmCtx.fillRect(px(dc) + MM_CELL * 0.25, px(dr) + MM_CELL * 0.25, MM_CELL * 0.5, MM_CELL * 0.5);
+  }
+  // Monstre (seulement s'il est proche et dans une zone explorée)
+  const mr = Math.round(monster.position.z / CELL), mc = Math.round(monster.position.x / CELL);
+  const mdr = mr - pr, mdc = mc - pc;
+  if (Math.abs(mdr) <= 6 && Math.abs(mdc) <= 6 && explored[mr * COLS + mc]) {
+    mmCtx.fillStyle = monsterState === 'chase' ? '#ff3030' : '#882222';
+    mmCtx.beginPath();
+    mmCtx.arc(px(mdc) + MM_CELL / 2, px(mdr) + MM_CELL / 2, MM_CELL * 0.45, 0, Math.PI * 2);
+    mmCtx.fill();
+  }
+  // Joueur + direction de regard
+  const cx = px(0) + MM_CELL / 2, cy = px(0) + MM_CELL / 2;
+  const fx = -Math.sin(yaw), fy = -Math.cos(yaw);
+  mmCtx.strokeStyle = '#ffe070'; mmCtx.lineWidth = 2;
+  mmCtx.beginPath(); mmCtx.moveTo(cx, cy); mmCtx.lineTo(cx + fx * MM_CELL * 1.6, cy + fy * MM_CELL * 1.6); mmCtx.stroke();
+  mmCtx.fillStyle = '#ffe070';
+  mmCtx.beginPath(); mmCtx.arc(cx, cy, MM_CELL * 0.4, 0, Math.PI * 2); mmCtx.fill();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && gameState === 'playing') goToMenu();
+});
+
+// ── Sons procéduraux (grognement, impact) ──
+function playTone(type, f0, f1, dur, vol) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t); o.stop(t + dur + 0.05);
+}
 
 let last=0;
 function loop(now) {
@@ -2315,10 +2468,17 @@ function loop(now) {
     return;
   }
   const { moving, sprint } = updatePlayer(dt);
+  lastSprint = sprint && moving;
   updateStats(dt, moving, sprint);
   updateFlashlight(dt);
   updateMonster(dt);
   updateLights();
+  exploreAround();
+  mmTimer -= dt;
+  if (minimapOn && mmTimer <= 0) { mmTimer = 0.12; drawMinimap(); }
+  hitFlash = Math.max(0, hitFlash - dt * 2.5);
+  hitFlashEl.style.opacity = hitFlash.toFixed(3);
+  if (flickerTick % 10 === 0) cullLights();
 
   // ── Items au sol : bob flottant ──
   const t = now * 0.001;
